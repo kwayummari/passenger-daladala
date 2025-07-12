@@ -98,7 +98,6 @@ class _LiveTrackingPageState extends State<LiveTrackingPage> {
 
       result.fold(
         (failure) {
-          print('Failed to load route stops: ${failure.message}');
           _initializeMap();
         },
         (stops) {
@@ -109,7 +108,6 @@ class _LiveTrackingPageState extends State<LiveTrackingPage> {
         },
       );
     } catch (e) {
-      print('Error loading route stops: $e');
       _initializeMap();
     }
   }
@@ -242,7 +240,6 @@ class _LiveTrackingPageState extends State<LiveTrackingPage> {
 
       result.fold(
         (failure) {
-          print('Failed to update trip location: ${failure.message}');
         },
         (updatedTrip) {
           if (updatedTrip.currentLocation != null) {
@@ -260,16 +257,12 @@ class _LiveTrackingPageState extends State<LiveTrackingPage> {
               _previousLocation = newLocation;
             }
 
-            // Update vehicle marker
             _updateVehicleMarker(newLocation);
-
-            // Move camera to follow vehicle
             _mapController?.animateCamera(CameraUpdate.newLatLng(newLocation));
           }
         },
       );
     } catch (e) {
-      print('Error updating trip location: $e');
     }
   }
 

@@ -92,8 +92,6 @@ class _TripDetailPageState extends State<TripDetailPage> {
 
       result.fold(
         (failure) {
-          // If stops loading fails, just initialize map with vehicle location
-          print('Failed to load route stops: ${failure.message}');
           _initializeMap();
         },
         (stops) {
@@ -104,7 +102,6 @@ class _TripDetailPageState extends State<TripDetailPage> {
         },
       );
     } catch (e) {
-      print('Error loading route stops: $e');
       _initializeMap();
     }
   }
