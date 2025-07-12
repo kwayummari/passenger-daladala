@@ -1,5 +1,3 @@
-// ignore_for_file: empty_catches
-
 import 'package:daladala_smart_app/features/routes/presentation/widgets/modern_stop_selection_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -154,9 +152,9 @@ class _RouteDetailPageState extends State<RouteDetailPage> {
     } else if (_selectedDropoffStop?.id == stop.id) {
       return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
     } else if (stop.isMajor) {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
     } else {
-      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
     }
   }
 

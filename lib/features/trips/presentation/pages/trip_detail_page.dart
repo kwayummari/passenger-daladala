@@ -1,10 +1,19 @@
 import 'package:daladala_smart_app/features/reviews/presentation/pages/add_review_page.dart';
+import 'package:daladala_smart_app/features/trips/domains/usecases/get_trip_details_usecase.dart';
+import 'package:daladala_smart_app/features/trips/domains/entities/trip.dart';
+import 'package:daladala_smart_app/core/di/service_locator.dart';
+import 'package:daladala_smart_app/features/routes/presentation/providers/route_provider.dart';
+import 'package:daladala_smart_app/features/routes/domain/entities/stop.dart';
+import 'package:daladala_smart_app/features/trips/presentation/pages/live_trackin_page.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:provider/provider.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/ui/widgets/custom_button.dart';
+import '../../../../core/ui/widgets/loading_indicator.dart';
+import '../../../../core/ui/widgets/error_view.dart';
 
 class TripDetailPage extends StatefulWidget {
   final int tripId;
@@ -17,21 +26,12 @@ class TripDetailPage extends StatefulWidget {
 
 class _TripDetailPageState extends State<TripDetailPage> {
   bool _isLoading = true;
+  String? _error;
+  Trip? _tripData;
   GoogleMapController? _mapController;
-
-  // Trip data (would come from API)
-  Map<String, dynamic>? _tripData;
-
-  // Map markers
   Set<Marker> _markers = {};
-
-  // Polyline for route
   Set<Polyline> _polylines = {};
-
-  String capitalize(String text) {
-    if (text.isEmpty) return text;
-    return '${text[0].toUpperCase()}${text.substring(1)}';
-  }
+  List<Stop> _routeStops = [];
 
   @override
   void initState() {
@@ -46,479 +46,285 @@ class _TripDetailPageState extends State<TripDetailPage> {
   }
 
   Future<void> _loadTripDetails() async {
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 1));
-
-    // Set sample data
-    _tripData = {
-      'id': widget.tripId,
-      'route_name': 'R001: Mbezi - CBD',
-      'route_number': 'R001',
-      'start_point': 'Mbezi Mwisho',
-      'end_point': 'Posta CBD',
-      'start_time': DateTime.now().add(const Duration(minutes: 30)),
-      'estimated_end_time': DateTime.now().add(const Duration(minutes: 75)),
-      'status': 'scheduled',
-      'vehicle_plate': 'T123ABC',
-      'vehicle_type': 'daladala',
-      'driver_name': 'David Driver',
-      'driver_rating': 4.75,
-      'total_distance': 18.5,
-      'current_location': const LatLng(-6.7789, 39.2083), // Mwenge
-      'pickup_location': const LatLng(-6.7402, 39.1589), // Mbezi
-      'dropoff_location': const LatLng(-6.8123, 39.2875), // Posta
-      'stops': [
-        {
-          'id': 1,
-          'name': 'Mbezi Mwisho',
-          'position': const LatLng(-6.7402, 39.1589),
-          'status': 'departed',
-          'arrival_time': DateTime.now().subtract(const Duration(minutes: 15)),
-          'departure_time': DateTime.now().subtract(
-            const Duration(minutes: 10),
-          ),
-        },
-        {
-          'id': 2,
-          'name': 'Mwenge',
-          'position': const LatLng(-6.7689, 39.2192),
-          'status': 'arrived',
-          'arrival_time': DateTime.now().subtract(const Duration(minutes: 2)),
-          'departure_time': null,
-        },
-        {
-          'id': 3,
-          'name': 'Morocco',
-          'position': const LatLng(-6.7765, 39.2380),
-          'status': 'pending',
-          'arrival_time': null,
-          'departure_time': null,
-        },
-        {
-          'id': 4,
-          'name': 'Posta CBD',
-          'position': const LatLng(-6.8123, 39.2875),
-          'status': 'pending',
-          'arrival_time': null,
-          'departure_time': null,
-        },
-      ],
-    };
-
-    // Setup map markers
-    _setupMapMarkersAndPolylines();
-
     setState(() {
-      _isLoading = false;
+      _isLoading = true;
+      _error = null;
     });
+
+    try {
+      final getTripDetailsUseCase = getIt<GetTripDetailsUseCase>();
+      final result = await getTripDetailsUseCase(
+        GetTripDetailsParams(tripId: widget.tripId),
+      );
+
+      result.fold(
+        (failure) {
+          setState(() {
+            _error = failure.message;
+            _isLoading = false;
+          });
+        },
+        (trip) {
+          setState(() {
+            _tripData = trip;
+            _isLoading = false;
+          });
+          _loadRouteStops();
+        },
+      );
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to load trip details: $e';
+        _isLoading = false;
+      });
+    }
   }
 
-  void _setupMapMarkersAndPolylines() {
-    if (_tripData == null) return;
+  Future<void> _loadRouteStops() async {
+    if (_tripData?.routeId == null) {
+      _initializeMap();
+      return;
+    }
 
-    final stops = _tripData!['stops'] as List;
-    final currentLocation = _tripData!['current_location'] as LatLng;
+    try {
+      final routeProvider = Provider.of<RouteProvider>(context, listen: false);
+      final result = await routeProvider.getRouteStops(_tripData!.routeId);
 
-    // Create markers for each stop
-    final markerSet = <Marker>{};
-    for (final stop in stops) {
-      final position = stop['position'] as LatLng;
-      final name = stop['name'] as String;
-      final status = stop['status'] as String;
+      result.fold(
+        (failure) {
+          // If stops loading fails, just initialize map with vehicle location
+          print('Failed to load route stops: ${failure.message}');
+          _initializeMap();
+        },
+        (stops) {
+          setState(() {
+            _routeStops = stops;
+          });
+          _initializeMap();
+        },
+      );
+    } catch (e) {
+      print('Error loading route stops: $e');
+      _initializeMap();
+    }
+  }
 
-      // Determine marker color based on status
-      BitmapDescriptor markerIcon;
-      switch (status) {
-        case 'departed':
-          markerIcon = BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueGreen,
-          );
-          break;
-        case 'arrived':
-          markerIcon = BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueBlue,
-          );
-          break;
-        default:
-          markerIcon = BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueRed,
-          );
-      }
+  void _initializeMap() {
+    _markers.clear();
+    _polylines.clear();
 
-      markerSet.add(
+    if (_tripData?.currentLocation != null) {
+      // Add vehicle marker
+      _markers.add(
         Marker(
-          markerId: MarkerId('stop_${stop['id']}'),
-          position: position,
-          infoWindow: InfoWindow(title: name),
-          icon: markerIcon,
+          markerId: const MarkerId('vehicle'),
+          position: _tripData!.currentLocation!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          infoWindow: InfoWindow(
+            title: 'Vehicle Location',
+            snippet: _tripData!.vehiclePlate ?? 'Vehicle',
+          ),
         ),
       );
     }
 
-    // Add vehicle marker
-    markerSet.add(
-      Marker(
-        markerId: const MarkerId('vehicle'),
-        position: currentLocation,
-        infoWindow: InfoWindow(title: _tripData!['vehicle_plate']),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow),
-      ),
-    );
+    // Add route stops if available
+    if (_routeStops.isNotEmpty) {
+      for (int i = 0; i < _routeStops.length; i++) {
+        final stop = _routeStops[i];
+        _markers.add(
+          Marker(
+            markerId: MarkerId('stop_${stop.id}'),
+            position: LatLng(stop.latitude, stop.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              i == 0
+                  ? BitmapDescriptor.hueGreen
+                  : i == _routeStops.length - 1
+                  ? BitmapDescriptor.hueRed
+                  : BitmapDescriptor.hueOrange,
+            ),
+            infoWindow: InfoWindow(
+              title: stop.stopName,
+              snippet:
+                  i == 0
+                      ? 'Start'
+                      : i == _routeStops.length - 1
+                      ? 'End'
+                      : 'Stop',
+            ),
+          ),
+        );
+      }
 
-    // Create polyline for the route
-    final polylines = <Polyline>{
-      Polyline(
-        polylineId: const PolylineId('route'),
-        points: stops.map((stop) => stop['position'] as LatLng).toList(),
-        color: AppTheme.primaryColor,
-        width: 5,
-      ),
-    };
+      // Create polyline for route
+      if (_routeStops.length > 1) {
+        final polylinePoints =
+            _routeStops
+                .map((stop) => LatLng(stop.latitude, stop.longitude))
+                .toList();
 
-    setState(() {
-      _markers = markerSet;
-      _polylines = polylines;
-    });
+        _polylines.add(
+          Polyline(
+            polylineId: const PolylineId('route'),
+            points: polylinePoints,
+            color: AppTheme.primaryColor,
+            width: 4,
+            patterns: [PatternItem.dash(10), PatternItem.gap(5)],
+          ),
+        );
+      }
+    }
+
+    setState(() {});
   }
 
   void _onMapCreated(GoogleMapController controller) {
     _mapController = controller;
+  }
 
-    // Center the map to show all markers
-    if (_tripData != null) {
-      controller.moveCamera(
-        CameraUpdate.newLatLngZoom(_tripData!['current_location'], 13.0),
-      );
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+      case 'in_progress':
+        return Colors.green;
+      case 'scheduled':
+        return Colors.blue;
+      case 'completed':
+        return Colors.grey;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.orange;
     }
   }
 
-  Future<void> _viewDriverInfo() async {
-    if (_tripData == null) return;
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+      case 'in_progress':
+        return Icons.directions_bus;
+      case 'scheduled':
+        return Icons.schedule;
+      case 'completed':
+        return Icons.check_circle;
+      case 'cancelled':
+        return Icons.cancel;
+      default:
+        return Icons.info;
+    }
+  }
 
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  String _capitalize(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
+  Widget _buildErrorView() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Trip Details'),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
       ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Driver Information',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 30,
-                    backgroundImage: AssetImage(
-                      'assets/images/driver_placeholder.png',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _tripData!['driver_name'],
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(Icons.star, color: Colors.amber, size: 18),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${_tripData!['driver_rating']} Rating',
-                              style: TextStyle(
-                                color: AppTheme.textSecondaryColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Vehicle',
-                          style: TextStyle(
-                            color: AppTheme.textSecondaryColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _tripData!['vehicle_plate'],
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Type',
-                          style: TextStyle(
-                            color: AppTheme.textSecondaryColor,
-                            fontSize: 12,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          capitalize(_tripData!['vehicle_type'].toString()),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Center(
-                child: CustomButton(
-                  text: 'Call Driver',
-                  icon: Icons.phone,
-                  onPressed: () {
-                    // Make a call
-                    Navigator.pop(context);
-                  },
-                  isFullWidth: false,
-                  width: 200,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+      body: ErrorView(
+        message: _error ?? 'Failed to load trip details',
+        onRetry: _loadTripDetails,
+      ),
     );
   }
 
-  void _showCancelDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Cancel Trip'),
-            content: const Text(
-              'Are you sure you want to cancel this trip? Cancellation fees may apply based on our policy.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('No, Keep Trip'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  // Handle trip cancellation
-                },
-                child: Text(
-                  'Yes, Cancel',
-                  style: TextStyle(color: AppTheme.errorColor),
-                ),
-              ),
-            ],
-          ),
+  Widget _buildLoadingView() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Trip Details'),
+        backgroundColor: AppTheme.primaryColor,
+        foregroundColor: Colors.white,
+      ),
+      body: const Center(child: LoadingIndicator()),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Trip Details'),
-          backgroundColor: AppTheme.primaryColor,
-          foregroundColor: Colors.white,
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
-              const SizedBox(height: 16),
-              const Text(
-                'Trip details not found',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              CustomButton(
-                text: 'Go Back',
-                onPressed: () => Navigator.pop(context),
-                isFullWidth: false,
-                width: 120,
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildLoadingView();
     }
 
-    // Format time
-    final formattedStartTime = DateFormat(
-      'HH:mm',
-    ).format(_tripData!['start_time']);
-    final formattedEndTime = DateFormat(
-      'HH:mm',
-    ).format(_tripData!['estimated_end_time']);
-    final formattedDate = DateFormat(
-      'EEE, d MMM',
-    ).format(_tripData!['start_time']);
-
-    // Determine trip status style
-    Color statusColor;
-    IconData statusIcon;
-
-    switch (_tripData!['status']) {
-      case 'scheduled':
-        statusColor = AppTheme.confirmedColor;
-        statusIcon = Icons.schedule;
-        break;
-      case 'in_progress':
-        statusColor = AppTheme.inProgressColor;
-        statusIcon = Icons.directions_bus;
-        break;
-      case 'completed':
-        statusColor = AppTheme.completedColor;
-        statusIcon = Icons.check_circle;
-        break;
-      case 'cancelled':
-        statusColor = AppTheme.cancelledColor;
-        statusIcon = Icons.cancel;
-        break;
-      default:
-        statusColor = AppTheme.pendingColor;
-        statusIcon = Icons.hourglass_empty;
+    if (_error != null) {
+      return _buildErrorView();
     }
+
+    if (_tripData == null) {
+      return _buildErrorView();
+    }
+
+    final trip = _tripData!;
+    final statusColor = _getStatusColor(trip.status);
+    final statusIcon = _getStatusIcon(trip.status);
+    final formattedDate = DateFormat('MMM dd, yyyy').format(trip.startTime);
+    final formattedStartTime = DateFormat('HH:mm').format(trip.startTime);
+    final formattedEndTime =
+        trip.endTime != null
+            ? DateFormat('HH:mm').format(trip.endTime!)
+            : 'TBD';
 
     return Scaffold(
-      body: Column(
+      body: Stack(
         children: [
-          // Map view (upper half)
-          Expanded(
-            child: Stack(
-              children: [
-                // Google Map
-                GoogleMap(
-                  initialCameraPosition: CameraPosition(
-                    target: _tripData!['current_location'],
-                    zoom: 13.0,
-                  ),
-                  onMapCreated: _onMapCreated,
-                  markers: _markers,
-                  polylines: _polylines,
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  mapToolbarEnabled: false,
-                ),
-
-                // App bar
-                Positioned(
-                  top: MediaQuery.of(context).padding.top,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                    child: Row(
-                      children: [
-                        // Back button
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.arrow_back),
-                            onPressed: () => Navigator.pop(context),
-                          ),
+          // Map
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: MediaQuery.of(context).size.height * 0.5,
+            child:
+                trip.currentLocation != null
+                    ? GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                        target: trip.currentLocation!,
+                        zoom: 13.0,
+                      ),
+                      onMapCreated: _onMapCreated,
+                      markers: _markers,
+                      polylines: _polylines,
+                      myLocationEnabled: true,
+                      myLocationButtonEnabled: false,
+                      zoomControlsEnabled: false,
+                      mapToolbarEnabled: false,
+                    )
+                    : Container(
+                      color: Colors.grey[300],
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.location_off,
+                              size: 64,
+                              color: Colors.grey,
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'Location not available',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
                         ),
-                        const Spacer(),
-                        // Share button
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.share),
-                            onPressed: () {
-                              // Format the trip details for sharing
-                              final String googleMapsLink = "https://www.google.com/maps/search/?api=1&query=${_tripData!['current_location'].latitude},${_tripData!['current_location'].longitude}";
-
-                              final String tripDetails = """
-                              Trip Details - Daladala Smart
-
-                              Route: ${_tripData!['route_name']}
-                              From: ${_tripData!['start_point']}
-                              To: ${_tripData!['end_point']}
-                              Date: ${DateFormat('EEE, d MMM yyyy').format(_tripData!['start_time'])}
-                              Time: ${DateFormat('HH:mm').format(_tripData!['start_time'])}
-                              Vehicle: ${_tripData!['vehicle_plate']}
-
-                              Track my location: $googleMapsLink
-
-                              Track this trip live with Daladala Smart app!
-                              """;
-
-                              // Share the trip details
-                              Share.share(
-                                tripDetails,
-                                subject:
-                                    'My Daladala Trip - ${_tripData!['route_name']}',
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+          ),
 
-                // Recenter button
-                Positioned(
-                  bottom: 16,
-                  right: 16,
-                  child: Container(
+          // App bar
+          Positioned(
+            top: MediaQuery.of(context).padding.top,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                children: [
+                  // Back button
+                  Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
                       shape: BoxShape.circle,
@@ -531,255 +337,444 @@ class _TripDetailPageState extends State<TripDetailPage> {
                       ],
                     ),
                     child: IconButton(
-                      icon: const Icon(Icons.my_location),
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                  const Spacer(),
+                  // Share button
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.share),
                       onPressed: () {
-                        _mapController?.animateCamera(
-                          CameraUpdate.newLatLngZoom(
-                            _tripData!['current_location'],
-                            15.0,
-                          ),
-                        );
+                        // Format the trip details for sharing
+                        final String googleMapsLink =
+                            trip.currentLocation != null
+                                ? "https://www.google.com/maps/search/?api=1&query=${trip.currentLocation!.latitude},${trip.currentLocation!.longitude}"
+                                : "https://www.google.com/maps";
+
+                        final String tripDetails = """
+Trip Details - Daladala Smart
+
+Route: ${trip.routeName ?? 'N/A'}
+From: ${trip.route?.startPoint ?? 'N/A'}
+To: ${trip.route?.endPoint ?? 'N/A'}
+Date: $formattedDate
+Time: $formattedStartTime - $formattedEndTime
+Vehicle: ${trip.vehiclePlate ?? 'N/A'}
+Driver: ${trip.driverName ?? 'N/A'}
+Status: ${_capitalize(trip.status.replaceAll('_', ' '))}
+
+Track this trip: $googleMapsLink
+
+Download Daladala Smart App for real-time tracking!
+                        """;
+
+                        Share.share(tripDetails);
                       },
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
 
           // Trip details (bottom sheet)
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, -5),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.6,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
                 ),
-              ],
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Handle
-                Center(
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 12, bottom: 8),
-                    width: 40,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2.5),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 12, bottom: 8),
+                      width: 40,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2.5),
+                      ),
                     ),
                   ),
-                ),
 
-                // Route and status
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _tripData!['route_name'],
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                  // Route and status
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                trip.routeName ?? 'Unknown Route',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$formattedDate • $formattedStartTime - $formattedEndTime',
-                              style: TextStyle(
-                                color: AppTheme.textSecondaryColor,
+                              const SizedBox(height: 4),
+                              Text(
+                                '$formattedDate • $formattedStartTime - $formattedEndTime',
+                                style: TextStyle(
+                                  color: AppTheme.textSecondaryColor,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(statusIcon, size: 16, color: statusColor),
-                            const SizedBox(width: 4),
-                            Text(
-                              capitalize(
-                                _tripData!['status'].replaceAll('_', ' '),
-                              ),
-                              style: TextStyle(
-                                color: statusColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Stops timeline
-                Container(
-                  height: 150,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _tripData!['stops'].length,
-                    itemBuilder: (context, index) {
-                      final stop = _tripData!['stops'][index];
-                      final status = stop['status'];
-
-                      // Determine status icon and color
-                      IconData statusIcon;
-                      Color statusColor;
-
-                      switch (status) {
-                        case 'departed':
-                          statusIcon = Icons.check_circle;
-                          statusColor = Colors.green;
-                          break;
-                        case 'arrived':
-                          statusIcon = Icons.location_on;
-                          statusColor = Colors.blue;
-                          break;
-                        default:
-                          statusIcon = Icons.circle_outlined;
-                          statusColor = Colors.grey;
-                      }
-
-                      // Format times
-                      String arrivalTime = 'Pending';
-                      if (stop['arrival_time'] != null) {
-                        arrivalTime = DateFormat(
-                          'HH:mm',
-                        ).format(stop['arrival_time']);
-                      }
-
-                      return Container(
-                        width: 150,
-                        margin: const EdgeInsets.only(right: 12),
-                        decoration: BoxDecoration(
-                          color:
-                              status == 'arrived'
-                                  ? AppTheme.primaryColor.withOpacity(0.1)
-                                  : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color:
-                                status == 'arrived'
-                                    ? AppTheme.primaryColor
-                                    : Colors.grey.shade200,
+                            ],
                           ),
                         ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(statusIcon, color: statusColor, size: 24),
-                            const SizedBox(height: 8),
-                            Text(
-                              stop['name'],
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(statusIcon, size: 16, color: statusColor),
+                              const SizedBox(width: 4),
+                              Text(
+                                _capitalize(trip.status.replaceAll('_', ' ')),
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                              textAlign: TextAlign.center,
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Route details
+                  if (trip.route != null) ...[
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 12,
+                                height: 12,
+                                decoration: const BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  trip.route!.startPoint,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            margin: const EdgeInsets.only(left: 6),
+                            child: Column(
+                              children: List.generate(3, (index) {
+                                return Container(
+                                  width: 2,
+                                  height: 8,
+                                  margin: const EdgeInsets.symmetric(
+                                    vertical: 2,
+                                  ),
+                                  color: Colors.grey[400],
+                                );
+                              }),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              arrivalTime,
-                              style: TextStyle(
-                                color: AppTheme.textSecondaryColor,
-                                fontSize: 13,
+                          ),
+                          Row(
+                            children: [
+                              Container(
+                                width: 12,
+                                height: 12,
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  trip.route!.endPoint,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Trip info
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Vehicle and driver info
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _InfoCard(
+                                  icon: Icons.directions_bus,
+                                  title: 'Vehicle',
+                                  subtitle: trip.vehiclePlate ?? 'N/A',
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _InfoCard(
+                                  icon: Icons.person,
+                                  title: 'Driver',
+                                  subtitle: trip.driverName ?? 'N/A',
+                                  trailing:
+                                      trip.driverRating != null
+                                          ? Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(
+                                                Icons.star,
+                                                size: 14,
+                                                color: Colors.orange,
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                trip.driverRating!
+                                                    .toStringAsFixed(1),
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                          : null,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Seats info
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _InfoCard(
+                                  icon: Icons.airline_seat_recline_normal,
+                                  title: 'Available Seats',
+                                  subtitle: '${trip.availableSeats ?? 0}',
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _InfoCard(
+                                  icon: Icons.people,
+                                  title: 'Occupied Seats',
+                                  subtitle: '${trip.occupiedSeats ?? 0}',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Distance and time
+                          if (trip.route != null) ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _InfoCard(
+                                    icon: Icons.straighten,
+                                    title: 'Distance',
+                                    subtitle:
+                                        trip.route!.distanceKm != null
+                                            ? '${trip.route!.distanceKm!.toStringAsFixed(1)} km'
+                                            : 'N/A',
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _InfoCard(
+                                    icon: Icons.access_time,
+                                    title: 'Est. Duration',
+                                    subtitle:
+                                        trip.route!.estimatedTimeMinutes != null
+                                            ? '${trip.route!.estimatedTimeMinutes} min'
+                                            : 'N/A',
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              capitalize(status),
-                              style: TextStyle(
-                                color: statusColor,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 12,
-                              ),
+                            const SizedBox(height: 20),
+                          ],
+
+                          // Action buttons
+                          if (trip.status == 'completed') ...[
+                            CustomButton(
+                              text: 'Rate Trip',
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) => AddReviewPage(
+                                          tripId: trip.id,
+                                          driverId: trip.driverId ?? 0,
+                                          driverName:
+                                              trip.driverName ??
+                                              'Unknown Driver',
+                                          vehicleId: trip.vehicleId,
+                                          vehiclePlate:
+                                              trip.vehiclePlate ??
+                                              'Unknown Vehicle',
+                                        ),
+                                  ),
+                                );
+                              },
+                              backgroundColor: AppTheme.primaryColor,
+                            ),
+                          ] else if (trip.status == 'active' ||
+                              trip.status == 'in_progress') ...[
+                            CustomButton(
+                              text: 'Track Live',
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) =>
+                                            LiveTrackingPage(tripId: trip.id),
+                                  ),
+                                );
+                              },
+                              backgroundColor: Colors.green,
+                              icon: Icons.my_location,
+                            ),
+                          ] else if (trip.status == 'scheduled') ...[
+                            CustomButton(
+                              text: 'Get Ready',
+                              onPressed: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Trip will start soon. Please be at the pickup point.',
+                                    ),
+                                  ),
+                                );
+                              },
+                              backgroundColor: Colors.blue,
+                              icon: Icons.notifications_active,
                             ),
                           ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-                // Action buttons
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: CustomButton(
-                          text: 'Driver Info',
-                          icon: Icons.person,
-                          onPressed: _viewDriverInfo,
-                          type: ButtonType.secondary,
-                        ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: CustomButton(
-                          text:
-                              _tripData!['status'] == 'completed'
-                                  ? 'Rate Trip'
-                                  : 'Cancel Trip',
-                          icon:
-                              _tripData!['status'] == 'completed'
-                                  ? Icons.star
-                                  : Icons.cancel,
-                          onPressed:
-                              _tripData!['status'] == 'completed'
-                                  ? () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder:
-                                            (_) => AddReviewPage(
-                                              tripId: widget.tripId,
-                                              driverId:
-                                                  1, // This would come from actual data
-                                              driverName:
-                                                  _tripData!['driver_name'],
-                                              vehicleId:
-                                                  1, // This would come from actual data
-                                              vehiclePlate:
-                                                  _tripData!['vehicle_plate'],
-                                            ),
-                                      ),
-                                    );
-                                  }
-                                  : _showCancelDialog,
-                          type:
-                              _tripData!['status'] == 'completed'
-                                  ? ButtonType.primary
-                                  : ButtonType.secondary,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+
+  const _InfoCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: AppTheme.primaryColor),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
         ],
       ),

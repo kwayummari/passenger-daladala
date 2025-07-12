@@ -504,17 +504,20 @@ class ApiService {
     try {
       final response = await http.get(
         Uri.parse(
-          '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.routesEndpoint}/fare?route_id=$routeId&start_stop_id=$startStopId&end_stop_id=$endStopId&fare_type=$fareType',
+          '$baseUrl${AppConstants.routesEndpoint}/fare?route_id=$routeId&start_stop_id=$startStopId&end_stop_id=$endStopId&fare_type=$fareType',
         ),
         headers: {'Content-Type': 'application/json'},
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        print("==========$data============");
         if (data['status'] == 'success') {
           return data['data'];
         }
       }
+
+      print("==========${response.statusCode}============");
       return null;
     } catch (e) {
       print('Error fetching fare: $e');
@@ -623,7 +626,6 @@ class ApiService {
       throw Exception('Network error: $e');
     }
   }
-
 
   // Notifications Methods
   Future<Map<String, dynamic>> getNotifications({

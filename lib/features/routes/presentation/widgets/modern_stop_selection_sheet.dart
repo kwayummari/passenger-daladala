@@ -1,4 +1,5 @@
 // lib/features/routes/presentation/widgets/modern_stop_selection_sheet.dart
+import 'package:daladala_smart_app/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../domain/entities/stop.dart';
@@ -107,21 +108,20 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
   }
 
   void _confirmSelection() {
-
     if (selectedPickupId != null && selectedDropoffId != null) {
       widget.onStopsSelected(selectedPickupId!, selectedDropoffId!);
       Navigator.pop(context);
+      Navigator.pop(context);
       HapticFeedback.mediumImpact();
-    } else {
-    }
+    } else {}
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.85,
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: AppTheme.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
@@ -157,13 +157,13 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    borderRadius: BorderRadius.circular(20),
+                    color: AppTheme.primaryColor,
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
                     widget.routeName,
                     style: TextStyle(
-                      color: Colors.blue[700],
+                      color: AppTheme.white,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -183,7 +183,9 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
                     height: 2,
                     decoration: BoxDecoration(
                       color:
-                          _currentStep >= 1 ? Colors.green : Colors.grey[300],
+                          _currentStep >= 1
+                              ? AppTheme.inProgressColor
+                              : Colors.grey[300],
                       borderRadius: BorderRadius.circular(1),
                     ),
                   ),
@@ -207,7 +209,7 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
                   stops: widget.stops,
                   selectedStopId: selectedPickupId,
                   isPickup: true,
-                  primaryColor: Colors.green,
+                  primaryColor: AppTheme.primaryColor,
                 ),
                 _buildStopSelectionPage(
                   title: 'Where do you want to get off?',
@@ -257,8 +259,10 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
                                 : null),
                     style: ElevatedButton.styleFrom(
                       backgroundColor:
-                          _currentStep == 0 ? Colors.green : Colors.blue,
-                      foregroundColor: Colors.white,
+                          _currentStep == 0
+                              ? AppTheme.inProgressColor
+                              : AppTheme.primaryColor,
+                      foregroundColor: AppTheme.white,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -294,15 +298,15 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
           decoration: BoxDecoration(
             color:
                 isCompleted
-                    ? Colors.green
+                    ? AppTheme.inProgressColor
                     : isActive
-                    ? Colors.blue
+                    ? AppTheme.primaryColor
                     : Colors.grey[300],
             shape: BoxShape.circle,
           ),
           child: Icon(
             isCompleted ? Icons.check : icon,
-            color: isActive || isCompleted ? Colors.white : Colors.grey[600],
+            color: isActive || isCompleted ? AppTheme.white : Colors.grey[600],
             size: 24,
           ),
         ),
@@ -312,7 +316,7 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: isActive ? Colors.blue : Colors.grey[600],
+            color: isActive ? AppTheme.primaryColor : Colors.grey[600],
           ),
         ),
       ],
@@ -408,7 +412,7 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
                     ? primaryColor.withOpacity(0.1)
                     : isDisabled
                     ? Colors.grey[100]
-                    : Colors.white,
+                    : AppTheme.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color:
@@ -449,22 +453,18 @@ class _ModernStopSelectionSheetState extends State<ModernStopSelectionSheet>
                           : isDisabled
                           ? Colors.grey
                           : stop.isMajor
-                          ? Colors.orange
-                          : Colors.blue,
+                          ? AppTheme.primaryColor
+                          : AppTheme.primaryColor,
                   shape: BoxShape.circle,
                 ),
                 child: Center(
                   child:
                       isSelected
-                          ? const Icon(
-                            Icons.check,
-                            color: Colors.white,
-                            size: 20,
-                          )
+                          ? Icon(Icons.check, color: AppTheme.white, size: 20)
                           : Text(
                             '${index + 1}',
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: AppTheme.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 14,
                             ),

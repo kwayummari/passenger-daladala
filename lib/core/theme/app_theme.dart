@@ -7,6 +7,7 @@ class AppTheme {
   static final Color primaryColor = HexColor('#00967B');
   static final Color accentColor = HexColor('#FFB72B');
   static final Color backgroundColor = Colors.white;
+  static final Color white = HexColor("#ffffff");
   static final Color surfaceColor = HexColor('#F7F7F7');
   static final Color errorColor = HexColor('#D32F2F');
   static final Color successColor = HexColor('#388E3C');
