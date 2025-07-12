@@ -1,0 +1,96 @@
+name: daladala_smart_app
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  flutter_dotenv: ^5.1.0
+  google_maps_flutter: ^2.5.0
+  flutter_polyline_points: ^2.0.0
+  location: ^5.0.3
+  dio: ^5.3.2
+  provider: ^6.0.5
+  shared_preferences: ^2.2.1
+  flutter_secure_storage: ^9.0.0
+  intl: ^0.20.2
+  flutter_svg: ^2.0.7
+  cached_network_image: ^3.2.3
+  lottie: ^3.3.1
+  flutter_spinkit: ^5.2.0
+  fluttertoast: ^8.2.2
+  shimmer: ^3.0.0
+  flutter_rating_bar: ^4.0.1
+  carousel_slider: ^4.2.1
+  get_it: ^7.6.0
+  image_picker: ^1.0.4
+  permission_handler: ^11.4.0
+  connectivity_plus: ^4.0.2
+  geolocator: ^13.0.3
+  geocoding: ^2.1.0
+  flutter_local_notifications: ^19.0.0
+  http: ^1.1.0
+  uuid: ^4.5.1
+  path_provider: ^2.1.1
+  animations: ^2.0.8
+  pull_to_refresh: ^2.0.0
+  url_launcher: ^6.1.14
+  package_info_plus: ^4.1.0
+  google_fonts: ^5.1.0
+  animated_text_kit: ^4.2.2
+  auto_size_text: ^3.0.0
+  dartz: ^0.10.1
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.5
+  equatable: ^2.0.7
+  share_plus: ^10.1.4
+  sms_autofill: ^2.4.1
+  http_parser: ^4.0.2
+  mime: ^1.0.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.6
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env
+    - assets/images/
+    - assets/icons/
+    - assets/animations/
+    - assets/fonts/
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Poppins/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins/Poppins-Bold.ttf
+          weight: 700
+
+flutter_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icons/app_icon.png"
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "assets/images/splash_logo.png"
+  android: true
+  ios: true
