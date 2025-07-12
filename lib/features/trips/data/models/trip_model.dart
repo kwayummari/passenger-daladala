@@ -1,6 +1,4 @@
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../domains/entities/trip.dart';
-import '../../../routes/data/models/route_model.dart';
 
 class TripModel extends Trip {
   const TripModel({
@@ -25,40 +23,44 @@ class TripModel extends Trip {
   });
 
   factory TripModel.fromJson(Map<String, dynamic> json) {
-    return TripModel(
-      id: json['trip_id'] ?? 0,
-      scheduleId: json['schedule_id'] ?? 0,
-      routeId: json['route_id'] ?? 0,
-      vehicleId: json['vehicle_id'] ?? 0,
-      driverId: json['driver_id'],
-      startTime: DateTime.parse(json['start_time']),
-      endTime:
-          json['end_time'] != null ? DateTime.parse(json['end_time']) : null,
-      status: json['status'] ?? 'unknown',
-      currentStopId: json['current_stop_id'],
-      nextStopId: json['next_stop_id'],
-      currentLocation:
-          json['current_location'] != null
-              ? LatLng(
-                json['current_location']['latitude'],
-                json['current_location']['longitude'],
-              )
-              : null,
-      routeName: json['Route']?['route_name'] ?? json['route_name'],
-      vehiclePlate: json['Vehicle']?['plate_number'] ?? json['vehicle_plate'],
-      driverName:
-          json['Driver']?['User']?['first_name'] != null
-              ? '${json['Driver']['User']['first_name']} ${json['Driver']['User']['last_name'] ?? ''}'
-                  .trim()
-              : json['driver_name'],
-      driverRating:
-          json['Driver']?['rating']?.toDouble() ??
-          json['driver_rating']?.toDouble(),
-      route: json['Route'] != null ? RouteModel.fromJson(json['Route']) : null,
-      // Don't assign VehicleModel and DriverModel to Trip entity, just use simple properties
-      availableSeats: json['available_seats'],
-      occupiedSeats: json['occupied_seats'],
-    );
+    try {
+      return TripModel(
+        id: json['trip_id'] ?? 0,
+        scheduleId: json['schedule_id'],
+        routeId: json['route_id'] ?? 0,
+        vehicleId: json['vehicle_id'] ?? 0,
+        driverId: json['driver_id'],
+        startTime: DateTime.parse(json['start_time'].toString()),
+        endTime:
+            json['end_time'] != null
+                ? DateTime.parse(json['end_time'].toString())
+                : null,
+        status: (json['status'] ?? 'scheduled').toString(),
+        currentStopId: json['current_stop_id'],
+        nextStopId: json['next_stop_id'],
+
+        // Simplified string handling
+        routeName: json['Route']?['route_name']?.toString(),
+        vehiclePlate: json['Vehicle']?['plate_number']?.toString(),
+        driverName: json['Driver']?['User']?['first_name']?.toString(),
+        driverRating: _parseDouble(json['Driver']?['rating']),
+
+        // Skip route parsing for now to isolate the issue
+        route: null,
+        availableSeats: json['available_seats'] ?? 0,
+        occupiedSeats: json['occupied_seats'] ?? 0,
+      );
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  static double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   Map<String, dynamic> toJson() {

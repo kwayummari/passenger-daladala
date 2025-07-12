@@ -75,7 +75,6 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
           throw Exception(failure.message);
         },
         (trips) {
-          // Filter trips by selected date and route
           final filteredTrips =
               trips.where((trip) {
                 final tripDate = DateTime(
@@ -88,16 +87,15 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                   _selectedDate.month,
                   _selectedDate.day,
                 );
-
-                return tripDate.isAtSameMomentAs(selectedDate) &&
+                final matches =
+                    tripDate.isAtSameMomentAs(selectedDate) &&
                     trip.routeId == widget.routeId &&
                     (trip.status == 'scheduled' || trip.status == 'active') &&
                     (trip.availableSeats ?? 0) > 0;
+                return matches;
               }).toList();
-
           // Sort by start time
           filteredTrips.sort((a, b) => a.startTime.compareTo(b.startTime));
-
           setState(() {
             _trips = filteredTrips;
           });
@@ -120,7 +118,6 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
         _fareAmount = fareData?['amount']?.toDouble() ?? 2000.0;
       });
     } catch (e) {
-      print('Error loading fare info: $e');
       setState(() {
         _fareAmount = 2000.0; // Base fare fallback
       });
@@ -278,7 +275,7 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Available Seats',
+                            'Available',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 12,

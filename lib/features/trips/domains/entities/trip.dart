@@ -5,7 +5,7 @@ import '../../../routes/domain/entities/transport_route.dart';
 
 class Trip extends Equatable {
   final int id;
-  final int scheduleId;
+  final int? scheduleId;
   final int routeId;
   final int vehicleId;
   final int? driverId;
@@ -31,7 +31,7 @@ class Trip extends Equatable {
 
   const Trip({
     required this.id,
-    required this.scheduleId,
+    this.scheduleId,
     required this.routeId,
     required this.vehicleId,
     this.driverId,
