@@ -38,6 +38,14 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
   double? _fareAmount;
   String? _error;
 
+  // Date range selection
+  String _selectedDateRange = 'single'; // 'single', 'week', 'month', '3months'
+  DateTime? _endDate;
+
+  // Seat selection
+  Map<int, List<String>> _selectedSeats = {}; // tripId -> list of seat numbers
+  Map<int, int> _passengerCounts = {}; // tripId -> passenger count
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +73,11 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 
   Future<void> _loadTrips() async {
     try {
+      print('🔍 DEBUG: Loading trips for route ${widget.routeId}');
+      print('🔍 DEBUG: Date range: $_selectedDateRange');
+      print('🔍 DEBUG: Start date: $_selectedDate');
+      print('🔍 DEBUG: End date: $_endDate');
+
       final getTripsUseCase = getIt<GetUpcomingTripsUseCase>();
       final result = await getTripsUseCase(
         GetUpcomingTripsParams(routeId: widget.routeId),
@@ -72,9 +85,13 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 
       result.fold(
         (failure) {
+          print('❌ DEBUG: Failed to get trips: ${failure.message}');
           throw Exception(failure.message);
         },
         (trips) {
+          print('✅ DEBUG: Successfully parsed ${trips.length} trips');
+
+          // Filter trips by selected date range
           final filteredTrips =
               trips.where((trip) {
                 final tripDate = DateTime(
@@ -82,26 +99,53 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                   trip.startTime.month,
                   trip.startTime.day,
                 );
-                final selectedDate = DateTime(
-                  _selectedDate.year,
-                  _selectedDate.month,
-                  _selectedDate.day,
-                );
-                final matches =
-                    tripDate.isAtSameMomentAs(selectedDate) &&
+
+                bool dateMatch = false;
+
+                if (_selectedDateRange == 'single') {
+                  final selectedDate = DateTime(
+                    _selectedDate.year,
+                    _selectedDate.month,
+                    _selectedDate.day,
+                  );
+                  dateMatch = tripDate.isAtSameMomentAs(selectedDate);
+                } else {
+                  // Date range filtering
+                  final startDate = DateTime(
+                    _selectedDate.year,
+                    _selectedDate.month,
+                    _selectedDate.day,
+                  );
+                  final endDate = DateTime(
+                    _endDate!.year,
+                    _endDate!.month,
+                    _endDate!.day,
+                  );
+                  dateMatch =
+                      tripDate.isAfter(startDate.subtract(Duration(days: 1))) &&
+                      tripDate.isBefore(endDate.add(Duration(days: 1)));
+                }
+
+                return dateMatch &&
                     trip.routeId == widget.routeId &&
-                    (trip.status == 'scheduled' || trip.status == 'active') &&
-                    (trip.availableSeats ?? 0) > 0;
-                return matches;
+                    (trip.status == 'scheduled' || trip.status == 'active');
               }).toList();
+
           // Sort by start time
           filteredTrips.sort((a, b) => a.startTime.compareTo(b.startTime));
+
           setState(() {
             _trips = filteredTrips;
           });
+
+          print(
+            '🎯 DEBUG: Filtered trips: ${filteredTrips.length} out of ${trips.length}',
+          );
         },
       );
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('💥 DEBUG: Error in _loadTrips: $e');
+      print('💥 DEBUG: Stack trace: $stackTrace');
       throw Exception('Failed to load trips: $e');
     }
   }
@@ -118,10 +162,31 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
         _fareAmount = fareData?['amount']?.toDouble() ?? 2000.0;
       });
     } catch (e) {
+      print('Error loading fare info: $e');
       setState(() {
         _fareAmount = 2000.0; // Base fare fallback
       });
     }
+  }
+
+  // Calculate total fare based on selected trips and dates
+  double _calculateTotalFare() {
+    double totalFare = 0.0;
+    final baseFare = _fareAmount ?? 2000.0;
+
+    for (final trip in _trips) {
+      final passengerCount = _passengerCounts[trip.id] ?? 0;
+      if (passengerCount > 0) {
+        totalFare += baseFare * passengerCount;
+      }
+    }
+
+    return totalFare;
+  }
+
+  // Get total selected passengers across all trips
+  int _getTotalPassengers() {
+    return _passengerCounts.values.fold(0, (sum, count) => sum + count);
   }
 
   Future<void> _selectDate() async {
@@ -129,35 +194,189 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(
-        const Duration(days: 30),
-      ), // Allow 30 days booking
+      lastDate: DateTime.now().add(const Duration(days: 90)),
     );
 
     if (picked != null && picked != _selectedDate) {
       setState(() {
         _selectedDate = picked;
+        _updateEndDate();
       });
       await _loadTrips();
     }
   }
 
-  void _bookTrip(Trip trip) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder:
-            (context) => BookingConfirmationPage(
-              tripId: trip.id,
-              routeName: widget.routeName,
-              from: widget.from,
-              to: widget.to,
-              startTime: trip.startTime,
-              fare: _fareAmount ?? 1500.0,
-              vehiclePlate: trip.vehiclePlate ?? 'Unknown',
-              pickupStopId: widget.pickupStopId,
-              dropoffStopId: widget.dropoffStopId,
+  void _selectDateRange(String range) {
+    setState(() {
+      _selectedDateRange = range;
+      _updateEndDate();
+      // Clear previous selections when changing date range
+      _selectedSeats.clear();
+      _passengerCounts.clear();
+    });
+    _loadTrips();
+  }
+
+  void _updateEndDate() {
+    switch (_selectedDateRange) {
+      case 'single':
+        _endDate = null;
+        break;
+      case 'week':
+        _endDate = _selectedDate.add(Duration(days: 7));
+        break;
+      case 'month':
+        _endDate = _selectedDate.add(Duration(days: 30));
+        break;
+      case '3months':
+        _endDate = _selectedDate.add(Duration(days: 90));
+        break;
+    }
+  }
+
+  void _showSeatSelection(Trip trip) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (context) => SeatSelectionSheet(
+            trip: trip,
+            selectedSeats: _selectedSeats[trip.id] ?? [],
+            onSeatsSelected: (seats, passengerCount) {
+              setState(() {
+                _selectedSeats[trip.id] = seats;
+                _passengerCounts[trip.id] = passengerCount;
+              });
+            },
+          ),
+    );
+  }
+
+  void _proceedToBooking() {
+    if (_getTotalPassengers() == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please select at least one trip and passengers'),
+        ),
+      );
+      return;
+    }
+
+    // For single trip, navigate to existing booking confirmation
+    if (_selectedDateRange == 'single' &&
+        _trips.length == 1 &&
+        _passengerCounts.isNotEmpty) {
+      final trip = _trips.first;
+      final passengerCount = _passengerCounts[trip.id] ?? 1;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) => BookingConfirmationPage(
+                tripId: trip.id,
+                routeName: widget.routeName,
+                from: widget.from,
+                to: widget.to,
+                startTime: trip.startTime,
+                fare: (_fareAmount ?? 2000.0) * passengerCount,
+                vehiclePlate: trip.vehiclePlate ?? 'Unknown',
+                pickupStopId: widget.pickupStopId,
+                dropoffStopId: widget.dropoffStopId,
+              ),
+        ),
+      );
+    } else {
+      // For multiple trips, show summary
+      _showBookingSummary();
+    }
+  }
+
+  void _showBookingSummary() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder:
+          (context) => BookingSummarySheet(
+            trips: _trips,
+            passengerCounts: _passengerCounts,
+            selectedSeats: _selectedSeats,
+            farePerTrip: _fareAmount ?? 2000.0,
+            totalFare: _calculateTotalFare(),
+            routeName: widget.routeName,
+            from: widget.from,
+            to: widget.to,
+            pickupStopId: widget.pickupStopId,
+            dropoffStopId: widget.dropoffStopId,
+          ),
+    );
+  }
+
+  Widget _buildDateRangeSelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Booking Period',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey[700],
             ),
+          ),
+          SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildDateRangeChip('Single Day', 'single'),
+                SizedBox(width: 8),
+                _buildDateRangeChip('This Week', 'week'),
+                SizedBox(width: 8),
+                _buildDateRangeChip('This Month', 'month'),
+                SizedBox(width: 8),
+                _buildDateRangeChip('3 Months', '3months'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateRangeChip(String label, String value) {
+    final isSelected = _selectedDateRange == value;
+    return GestureDetector(
+      onTap: () => _selectDateRange(value),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryColor : Colors.grey[300]!,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey[700],
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       ),
     );
   }
@@ -168,6 +387,9 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
         trip.endTime != null
             ? DateFormat('HH:mm').format(trip.endTime!)
             : 'TBD';
+    final tripDate = DateFormat('MMM dd').format(trip.startTime);
+    final passengerCount = _passengerCounts[trip.id] ?? 0;
+    final selectedSeats = _selectedSeats[trip.id] ?? [];
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -194,7 +416,7 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '$startTime - $endTime',
+                        '$tripDate • $startTime - $endTime',
                         style: TextStyle(color: Colors.grey[600], fontSize: 14),
                       ),
                     ],
@@ -230,7 +452,6 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
             // Trip details
             Row(
               children: [
-                // Vehicle info
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -260,8 +481,6 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                     ],
                   ),
                 ),
-
-                // Available seats
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,11 +504,11 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${trip.availableSeats ?? 0}',
+                        '${(trip.availableSeats ?? 30) - passengerCount} seats',
                         style: TextStyle(
                           fontWeight: FontWeight.w500,
                           color:
-                              (trip.availableSeats ?? 0) > 5
+                              (trip.availableSeats ?? 30) > 5
                                   ? Colors.green
                                   : Colors.orange,
                         ),
@@ -297,8 +516,6 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                     ],
                   ),
                 ),
-
-                // Driver info
                 if (trip.driverName != null)
                   Expanded(
                     child: Column(
@@ -333,18 +550,47 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
               ],
             ),
 
+            // Show selected passengers and seats
+            if (passengerCount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, size: 16, color: Colors.green),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$passengerCount passenger(s) selected' +
+                            (selectedSeats.isNotEmpty
+                                ? ' • Seats: ${selectedSeats.join(", ")}'
+                                : ''),
+                        style: TextStyle(
+                          color: Colors.green[700],
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 12),
 
-            // Book button
+            // Select seats button
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed:
-                    (trip.availableSeats ?? 0) > 0
-                        ? () => _bookTrip(trip)
-                        : null,
+                onPressed: () => _showSeatSelection(trip),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
+                  backgroundColor:
+                      passengerCount > 0 ? Colors.green : AppTheme.primaryColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(
@@ -352,7 +598,9 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                   ),
                 ),
                 child: Text(
-                  (trip.availableSeats ?? 0) > 0 ? 'Book Trip' : 'Fully Booked',
+                  passengerCount > 0
+                      ? 'Update Selection'
+                      : 'Select Passengers & Seats',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
@@ -388,7 +636,6 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
             ),
             child: Column(
               children: [
-                // Route details
                 Row(
                   children: [
                     Expanded(
@@ -460,7 +707,7 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            'Fare',
+                            'Fare per trip',
                             style: TextStyle(
                               color: Colors.grey[600],
                               fontSize: 12,
@@ -493,18 +740,37 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
               children: [
                 const Icon(Icons.calendar_today, size: 20, color: Colors.grey),
                 const SizedBox(width: 8),
-                Text(
-                  'Date: ${DateFormat('MMM dd, yyyy').format(_selectedDate)}',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _selectedDateRange == 'single'
+                            ? 'Date: ${DateFormat('MMM dd, yyyy').format(_selectedDate)}'
+                            : 'From: ${DateFormat('MMM dd').format(_selectedDate)} - To: ${DateFormat('MMM dd, yyyy').format(_endDate!)}',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (_selectedDateRange != 'single' && _trips.isNotEmpty)
+                        Text(
+                          '${_trips.length} trips available',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                const Spacer(),
                 TextButton(onPressed: _selectDate, child: const Text('Change')),
               ],
             ),
           ),
+
+          // Date range selector
+          _buildDateRangeSelector(),
 
           // Content area
           Expanded(
@@ -534,7 +800,7 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Try selecting a different date',
+                            'Try selecting a different date or period',
                             style: TextStyle(color: Colors.grey[500]),
                           ),
                           const SizedBox(height: 16),
@@ -555,6 +821,661 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                         },
                       ),
                     ),
+          ),
+        ],
+      ),
+
+      // Bottom bar with total and book button
+      bottomNavigationBar:
+          _getTotalPassengers() > 0
+              ? Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, -5),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Total: ${_getTotalPassengers()} passenger(s)',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              '${_calculateTotalFare().toStringAsFixed(0)} TZS',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _proceedToBooking,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text(
+                          'Book Now',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              : null,
+    );
+  }
+}
+
+// Seat Selection Bottom Sheet
+class SeatSelectionSheet extends StatefulWidget {
+  final Trip trip;
+  final List<String> selectedSeats;
+  final Function(List<String>, int) onSeatsSelected;
+
+  const SeatSelectionSheet({
+    super.key,
+    required this.trip,
+    required this.selectedSeats,
+    required this.onSeatsSelected,
+  });
+
+  @override
+  State<SeatSelectionSheet> createState() => _SeatSelectionSheetState();
+}
+
+class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
+  List<String> _selectedSeats = [];
+  int _passengerCount = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedSeats = List.from(widget.selectedSeats);
+    _passengerCount = _selectedSeats.length > 0 ? _selectedSeats.length : 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final capacity = widget.trip.availableSeats ?? 30;
+    final seatsPerRow = 4;
+    final rows = (capacity / seatsPerRow).ceil();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.7,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Select Seats - Trip #${widget.trip.id}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Passenger count selector
+          Row(
+            children: [
+              Text(
+                'Passengers: ',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              ),
+              IconButton(
+                onPressed:
+                    _passengerCount > 1
+                        ? () {
+                          setState(() {
+                            _passengerCount--;
+                            if (_selectedSeats.length > _passengerCount) {
+                              _selectedSeats.removeRange(
+                                _passengerCount,
+                                _selectedSeats.length,
+                              );
+                            }
+                          });
+                        }
+                        : null,
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+              Text(
+                '$_passengerCount',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              IconButton(
+                onPressed:
+                    _passengerCount < 10
+                        ? () {
+                          setState(() {
+                            _passengerCount++;
+                          });
+                        }
+                        : null,
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Seat map
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  // Driver area
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.settings_input_svideo_rounded),
+                        SizedBox(width: 8),
+                        Text('Driver'),
+                      ],
+                    ),
+                  ),
+
+                  // Seat grid
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: seatsPerRow,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                      childAspectRatio: 1,
+                    ),
+                    itemCount: capacity,
+                    itemBuilder: (context, index) {
+                      final seatNumber =
+                          'S${(index + 1).toString().padLeft(2, '0')}';
+                      final isSelected = _selectedSeats.contains(seatNumber);
+                      final isOccupied =
+                          false; // You can add real occupied seat logic here
+
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            if (isSelected) {
+                              _selectedSeats.remove(seatNumber);
+                            } else if (_selectedSeats.length <
+                                _passengerCount) {
+                              _selectedSeats.add(seatNumber);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    'Maximum $_passengerCount seats can be selected',
+                                  ),
+                                ),
+                              );
+                            }
+                          });
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color:
+                                isOccupied
+                                    ? Colors.red[300]
+                                    : isSelected
+                                    ? Colors.green[400]
+                                    : Colors.grey[200],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color:
+                                  isSelected ? Colors.green : Colors.grey[400]!,
+                              width: 2,
+                            ),
+                          ),
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.airline_seat_recline_normal,
+                                  color:
+                                      isOccupied
+                                          ? Colors.white
+                                          : isSelected
+                                          ? Colors.white
+                                          : Colors.grey[600],
+                                  size: 20,
+                                ),
+                                Text(
+                                  seatNumber,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color:
+                                        isOccupied
+                                            ? Colors.white
+                                            : isSelected
+                                            ? Colors.white
+                                            : Colors.grey[600],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Legend
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildLegendItem(Colors.grey[200]!, 'Available'),
+                      _buildLegendItem(Colors.green[400]!, 'Selected'),
+                      _buildLegendItem(Colors.red[300]!, 'Occupied'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Confirm button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed:
+                  _selectedSeats.length == _passengerCount
+                      ? () {
+                        widget.onSeatsSelected(_selectedSeats, _passengerCount);
+                        Navigator.pop(context);
+                      }
+                      : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                'Confirm Selection (${_selectedSeats.length}/$_passengerCount)',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendItem(Color color, String label) {
+    return Row(
+      children: [
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+}
+
+// Booking Summary Bottom Sheet
+class BookingSummarySheet extends StatelessWidget {
+  final List<Trip> trips;
+  final Map<int, int> passengerCounts;
+  final Map<int, List<String>> selectedSeats;
+  final double farePerTrip;
+  final double totalFare;
+  final String routeName;
+  final String from;
+  final String to;
+  final int pickupStopId;
+  final int dropoffStopId;
+
+  const BookingSummarySheet({
+    super.key,
+    required this.trips,
+    required this.passengerCounts,
+    required this.selectedSeats,
+    required this.farePerTrip,
+    required this.totalFare,
+    required this.routeName,
+    required this.from,
+    required this.to,
+    required this.pickupStopId,
+    required this.dropoffStopId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedTrips =
+        trips.where((trip) => (passengerCounts[trip.id] ?? 0) > 0).toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.8,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Booking Summary',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Route info
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  routeName,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.location_on, size: 16, color: Colors.green),
+                    const SizedBox(width: 4),
+                    Text(from),
+                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Icon(Icons.location_on, size: 16, color: Colors.red),
+                    const SizedBox(width: 4),
+                    Text(to),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Selected trips
+          Expanded(
+            child: ListView.builder(
+              itemCount: selectedTrips.length,
+              itemBuilder: (context, index) {
+                final trip = selectedTrips[index];
+                final passengerCount = passengerCounts[trip.id] ?? 0;
+                final seats = selectedSeats[trip.id] ?? [];
+                final tripFare = farePerTrip * passengerCount;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Trip #${trip.id}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${tripFare.toStringAsFixed(0)} TZS',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          DateFormat(
+                            'MMM dd, yyyy • HH:mm',
+                          ).format(trip.startTime),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Vehicle: ${trip.vehiclePlate ?? "N/A"}',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(Icons.people, size: 16, color: Colors.blue),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$passengerCount passenger(s)',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (seats.isNotEmpty) ...[
+                              const SizedBox(width: 16),
+                              Icon(
+                                Icons.airline_seat_recline_normal,
+                                size: 16,
+                                color: Colors.orange,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Seats: ${seats.join(", ")}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Total summary
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.green[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green[200]!),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Total Trips:', style: const TextStyle(fontSize: 16)),
+                    Text(
+                      '${selectedTrips.length}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Total Passengers:',
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    Text(
+                      '${passengerCounts.values.fold(0, (sum, count) => sum + count)}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Total Amount:',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '${totalFare.toStringAsFixed(0)} TZS',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Confirm booking button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                // For now, just close and show success message
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Booking confirmed! Total: ${totalFare.toStringAsFixed(0)} TZS',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+
+                // Navigate back to previous screens
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: Text(
+                'Confirm Booking - ${totalFare.toStringAsFixed(0)} TZS',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ],
       ),
