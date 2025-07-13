@@ -1,12 +1,14 @@
+// lib/features/bookings/data/repositories/booking_repository_impl.dart - FIXED VERSION
 import 'package:dartz/dartz.dart';
 import '../../../../core/error/exceptions.dart';
 import '../../../../core/error/failures.dart';
 import '../../../../core/network/network_info.dart';
-import '../../domain/entities/booking.dart';
+import '../../domain/entities/booking.dart'
+    as entities; // Use prefix for entity
 import '../../domain/repositories/booking_repository.dart';
 import '../../domain/usecases/create_multiple_bookings_usecase.dart';
 import '../datasources/booking_datasource.dart';
-import '../models/booking_model.dart';
+import '../models/booking_model.dart'; // This is the model
 
 class BookingRepositoryImpl implements BookingRepository {
   final BookingDataSource dataSource;
@@ -15,12 +17,15 @@ class BookingRepositoryImpl implements BookingRepository {
   BookingRepositoryImpl({required this.dataSource, required this.networkInfo});
 
   @override
-  Future<Either<Failure, List<Booking>>> getUserBookings({
+  Future<Either<Failure, List<entities.Booking>>> getUserBookings({
     String? status,
   }) async {
     if (await networkInfo.isConnected) {
       try {
-        final bookings = await dataSource.getUserBookings(status: status);
+        final bookingModels = await dataSource.getUserBookings(status: status);
+        // Convert models to entities
+        final bookings =
+            bookingModels.map((model) => model as entities.Booking).toList();
         return Right(bookings);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
@@ -37,10 +42,14 @@ class BookingRepositoryImpl implements BookingRepository {
   }
 
   @override
-  Future<Either<Failure, Booking>> getBookingDetails(int bookingId) async {
+  Future<Either<Failure, entities.Booking>> getBookingDetails(
+    int bookingId,
+  ) async {
     if (await networkInfo.isConnected) {
       try {
-        final booking = await dataSource.getBookingDetails(bookingId);
+        final bookingModel = await dataSource.getBookingDetails(bookingId);
+        // Convert model to entity
+        final booking = bookingModel as entities.Booking;
         return Right(booking);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
@@ -59,20 +68,28 @@ class BookingRepositoryImpl implements BookingRepository {
   }
 
   @override
-  Future<Either<Failure, Booking>> createBooking({
+  Future<Either<Failure, entities.Booking>> createBooking({
     required int tripId,
     required int pickupStopId,
     required int dropoffStopId,
     required int passengerCount,
+    List<String>? seatNumbers,
+    List<String>? passengerNames,
+    String? travelDate,
   }) async {
     if (await networkInfo.isConnected) {
       try {
-        final booking = await dataSource.createBooking(
+        final bookingModel = await dataSource.createBooking(
           tripId: tripId,
           pickupStopId: pickupStopId,
           dropoffStopId: dropoffStopId,
           passengerCount: passengerCount,
+          seatNumbers: seatNumbers,
+          passengerNames: passengerNames,
+          travelDate: travelDate,
         );
+        // Convert model to entity
+        final booking = bookingModel as entities.Booking;
         return Right(booking);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
@@ -91,10 +108,16 @@ class BookingRepositoryImpl implements BookingRepository {
   }
 
   @override
-  Future<Either<Failure, void>> cancelBooking(int bookingId) async {
+  Future<Either<Failure, void>> cancelBooking(
+    int bookingId, {
+    bool cancelEntireGroup = false,
+  }) async {
     if (await networkInfo.isConnected) {
       try {
-        await dataSource.cancelBooking(bookingId);
+        await dataSource.cancelBooking(
+          bookingId,
+          cancelEntireGroup: cancelEntireGroup,
+        );
         return const Right(null);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
@@ -118,19 +141,26 @@ class BookingRepositoryImpl implements BookingRepository {
     }
   }
 
-  // NEW: Create multiple bookings implementation - FIXED
+  // NEW: Create multiple bookings implementation
   @override
   Future<Either<Failure, MultipleBookingsResponse>> createMultipleBookings(
     List<Map<String, dynamic>> bookingsData,
   ) async {
     if (await networkInfo.isConnected) {
       try {
-        final response = await dataSource.createMultipleBookings(bookingsData);
+        final response = await dataSource.createMultipleBookings(
+          bookingsData,
+          isMultiDay: true,
+          dateRange: 'week',
+        );
 
-        // FIXED: Convert response to MultipleBookingsResponse without toEntity()
+        // Convert response to MultipleBookingsResponse
         final bookings =
             (response['bookings'] as List)
-                .map((booking) => BookingModel.fromJson(booking) as Booking)
+                .map(
+                  (booking) =>
+                      BookingModel.fromJson(booking) as entities.Booking,
+                )
                 .toList();
 
         return Right(
@@ -138,6 +168,9 @@ class BookingRepositoryImpl implements BookingRepository {
             bookings: bookings,
             totalFare: (response['total_fare'] as num).toDouble(),
             totalBookings: response['total_bookings'] as int,
+            bookingReference: response['booking_reference'] as String?,
+            isMultiDay: response['is_multi_day'] as bool? ?? true,
+            dateRange: response['date_range'] as String?,
           ),
         );
       } on ServerException catch (e) {
@@ -164,7 +197,10 @@ class BookingRepositoryImpl implements BookingRepository {
   ) async {
     if (await networkInfo.isConnected) {
       try {
-        await dataSource.reserveSeats(bookingId, seatNumbers);
+        await dataSource.reserveSeats(
+          bookingId: bookingId,
+          seatNumbers: seatNumbers,
+        );
         return const Right(null);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
@@ -187,16 +223,176 @@ class BookingRepositoryImpl implements BookingRepository {
   }
 
   // NEW: Auto-assign seats implementation
-  @override
+ @override
   Future<Either<Failure, void>> autoAssignSeats(int bookingId) async {
     if (await networkInfo.isConnected) {
       try {
-        await dataSource.autoAssignSeats(bookingId);
+        await dataSource.autoAssignSeats(bookingId); // ✅ Correct method call
         return const Right(null);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
       } on NotFoundException catch (e) {
         return Left(NotFoundFailure(message: e.message ?? 'Booking not found'));
+      } on BadRequestException catch (e) {
+        return Left(
+          InputFailure(message: e.message ?? 'Cannot auto-assign seats'),
+        );
+      } on UnauthorizedException catch (e) {
+        return Left(
+          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+        );
+      } catch (e) {
+        return Left(ServerFailure(message: e.toString()));
+      }
+    } else {
+      return Left(NetworkFailure(message: 'No internet connection'));
+    }
+  }
+  
+  // NEW: Get available seats implementation
+  @override
+  Future<Either<Failure, Map<String, dynamic>>> getAvailableSeats({
+    required int tripId,
+    int? pickupStopId,
+    int? dropoffStopId,
+    String? travelDate,
+  }) async {
+    if (await networkInfo.isConnected) {
+      try {
+        final seatData = await dataSource.getAvailableSeats(
+          tripId: tripId,
+          pickupStopId: pickupStopId,
+          dropoffStopId: dropoffStopId,
+          travelDate: travelDate,
+        );
+        return Right(seatData);
+      } on ServerException catch (e) {
+        return Left(ServerFailure(message: e.message ?? 'Server error'));
+      } on NotFoundException catch (e) {
+        return Left(NotFoundFailure(message: e.message ?? 'Trip not found'));
+      } on UnauthorizedException catch (e) {
+        return Left(
+          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+        );
+      } catch (e) {
+        return Left(ServerFailure(message: e.toString()));
+      }
+    } else {
+      return Left(NetworkFailure(message: 'No internet connection'));
+    }
+  }
+
+
+  // NEW: Release seat implementation
+  @override
+  Future<Either<Failure, void>> releaseSeat(int bookingSeatId) async {
+    if (await networkInfo.isConnected) {
+      try {
+        await dataSource.releaseSeat(bookingSeatId);
+        return const Right(null);
+      } on ServerException catch (e) {
+        return Left(ServerFailure(message: e.message ?? 'Server error'));
+      } on NotFoundException catch (e) {
+        return Left(
+          NotFoundFailure(message: e.message ?? 'Booking seat not found'),
+        );
+      } on BadRequestException catch (e) {
+        return Left(InputFailure(message: e.message ?? 'Cannot release seat'));
+      } on UnauthorizedException catch (e) {
+        return Left(
+          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+        );
+      } catch (e) {
+        return Left(ServerFailure(message: e.toString()));
+      }
+    } else {
+      return Left(NetworkFailure(message: 'No internet connection'));
+    }
+  }
+
+  // NEW: Board passenger implementation
+  @override
+  Future<Either<Failure, void>> boardPassenger(int bookingSeatId) async {
+    if (await networkInfo.isConnected) {
+      try {
+        await dataSource.boardPassenger(bookingSeatId);
+        return const Right(null);
+      } on ServerException catch (e) {
+        return Left(ServerFailure(message: e.message ?? 'Server error'));
+      } on NotFoundException catch (e) {
+        return Left(
+          NotFoundFailure(message: e.message ?? 'Booking seat not found'),
+        );
+      } on BadRequestException catch (e) {
+        return Left(
+          InputFailure(message: e.message ?? 'Cannot board passenger'),
+        );
+      } on UnauthorizedException catch (e) {
+        return Left(
+          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+        );
+      } catch (e) {
+        return Left(ServerFailure(message: e.toString()));
+      }
+    } else {
+      return Left(NetworkFailure(message: 'No internet connection'));
+    }
+  }
+
+  // NEW: Get vehicle seat map implementation
+  @override
+  Future<Either<Failure, Map<String, dynamic>>> getVehicleSeatMap({
+    required int vehicleId,
+    int? tripId,
+    String? travelDate,
+  }) async {
+    if (await networkInfo.isConnected) {
+      try {
+        final seatMap = await dataSource.getVehicleSeatMap(
+          vehicleId: vehicleId,
+          tripId: tripId,
+          travelDate: travelDate,
+        );
+        return Right(seatMap);
+      } on ServerException catch (e) {
+        return Left(ServerFailure(message: e.message ?? 'Server error'));
+      } on NotFoundException catch (e) {
+        return Left(NotFoundFailure(message: e.message ?? 'Vehicle not found'));
+      } on UnauthorizedException catch (e) {
+        return Left(
+          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+        );
+      } catch (e) {
+        return Left(ServerFailure(message: e.toString()));
+      }
+    } else {
+      return Left(NetworkFailure(message: 'No internet connection'));
+    }
+  }
+  
+  @override
+  Future<Either<Failure, List<String>>> autoAssignSeatsForTrip({
+    required int tripId,
+    required int pickupStopId,
+    required int dropoffStopId,
+    required int passengerCount,
+    String? travelDate,
+  }) async {
+    if (await networkInfo.isConnected) {
+      try {
+        final assignedSeats = await dataSource.autoAssignSeatsForTrip(
+          // ✅ Correct method call
+          tripId: tripId,
+          pickupStopId: pickupStopId,
+          dropoffStopId: dropoffStopId,
+          passengerCount: passengerCount,
+          travelDate: travelDate,
+        );
+        return Right(assignedSeats);
+      } on ServerException catch (e) {
+        return Left(ServerFailure(message: e.message ?? 'Server error'));
+      } on NotFoundException catch (e) {
+        return Left(NotFoundFailure(message: e.message ?? 'Trip not found'));
       } on BadRequestException catch (e) {
         return Left(
           InputFailure(message: e.message ?? 'Cannot auto-assign seats'),
