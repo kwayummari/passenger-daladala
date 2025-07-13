@@ -6,9 +6,8 @@ import '../../../../core/network/network_info.dart';
 import '../../domain/entities/booking.dart'
     as entities; // Use prefix for entity
 import '../../domain/repositories/booking_repository.dart';
-import '../../domain/usecases/create_multiple_bookings_usecase.dart';
 import '../datasources/booking_datasource.dart';
-import '../models/booking_model.dart'; // This is the model
+import '../models/multiple_bookings_response.dart';
 
 class BookingRepositoryImpl implements BookingRepository {
   final BookingDataSource dataSource;
@@ -144,42 +143,25 @@ class BookingRepositoryImpl implements BookingRepository {
   // NEW: Create multiple bookings implementation
   @override
   Future<Either<Failure, MultipleBookingsResponse>> createMultipleBookings(
-    List<Map<String, dynamic>> bookingsData,
-  ) async {
+    List<Map<String, dynamic>> bookingsData, {
+    String? dateRange,
+    int? totalDays,
+    bool? isMultiDay,
+  }) async {
     if (await networkInfo.isConnected) {
       try {
         final response = await dataSource.createMultipleBookings(
           bookingsData,
-          isMultiDay: true,
-          dateRange: 'week',
+          dateRange: dateRange,
+          totalDays: totalDays,
+          isMultiDay: isMultiDay,
         );
-
-        // Convert response to MultipleBookingsResponse
-        final bookings =
-            (response['bookings'] as List)
-                .map(
-                  (booking) =>
-                      BookingModel.fromJson(booking) as entities.Booking,
-                )
-                .toList();
-
-        return Right(
-          MultipleBookingsResponse(
-            bookings: bookings,
-            totalFare: (response['total_fare'] as num).toDouble(),
-            totalBookings: response['total_bookings'] as int,
-            bookingReference: response['booking_reference'] as String?,
-            isMultiDay: response['is_multi_day'] as bool? ?? true,
-            dateRange: response['date_range'] as String?,
-          ),
-        );
+        return Right(response);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
-      } on BadRequestException catch (e) {
-        return Left(InputFailure(message: e.message ?? 'Invalid booking data'));
       } on UnauthorizedException catch (e) {
         return Left(
-          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+          AuthenticationFailure(message: e.message ?? 'Unauthorized'),
         );
       } catch (e) {
         return Left(ServerFailure(message: e.toString()));
@@ -187,7 +169,7 @@ class BookingRepositoryImpl implements BookingRepository {
     } else {
       return Left(NetworkFailure(message: 'No internet connection'));
     }
-  }
+  } 
 
   // NEW: Reserve seats implementation
   @override

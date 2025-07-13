@@ -1,5 +1,3 @@
-// Enhanced BookingConfirmationPage to support multiple trips
-import 'package:daladala_smart_app/features/home/presentation/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -66,20 +64,33 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
   bool _showPaymentSection = false;
   double _walletBalance = 0.0;
 
-  // Enhanced passenger and seat management
-  Map<String, int> _passengerCounts =
-      {}; // For multiple trips: 'tripId_date' -> count
-  Map<String, List<String>> _selectedSeats =
-      {}; // For multiple trips: 'tripId_date' -> seats
   int _totalPassengers = 0;
   double _totalFare = 0.0;
 
   @override
   void initState() {
     super.initState();
+    print('🔍 DEBUG: BookingConfirmationPage initState');
+    print('🔍 DEBUG: tripId: ${widget.tripId}');
+    print('🔍 DEBUG: selectedTrips: ${widget.selectedTrips}');
+    print('🔍 DEBUG: dateRange: ${widget.dateRange}');
+    print('🔍 DEBUG: totalDays: ${widget.totalDays}');
+    print('🔍 DEBUG: pickupStopId: ${widget.pickupStopId}');
+    print('🔍 DEBUG: dropoffStopId: ${widget.dropoffStopId}');
+
+    if (widget.selectedTrips != null) {
+      for (int i = 0; i < widget.selectedTrips!.length; i++) {
+        print('🔍 DEBUG: selectedTrips[$i]: ${widget.selectedTrips![i]}');
+      }
+    }
+
     _initializeAnimations();
     _initializeBookingData();
-    _loadWalletBalance();
+
+    // Add delay to ensure providers are ready
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadWalletBalance();
+    });
   }
 
   void _initializeAnimations() {
@@ -115,24 +126,51 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
 
   void _calculateMultipleTripTotals() {
     int totalPassengers = 0;
-    double totalFare = 0.0;
+    double baseTotalFare = 0.0;
 
+    // Calculate base fare for all selected trips and passengers
     for (final tripData in widget.selectedTrips!) {
       final passengerCount = tripData['passengerCount'] ?? 0;
       final tripFare = tripData['fare'] ?? widget.fare;
 
       totalPassengers += passengerCount as int;
-      totalFare += (tripFare * passengerCount) as double;
+      baseTotalFare += (tripFare * passengerCount) as double;
     }
 
-    // If date range booking, multiply by number of days
-    if (widget.dateRange != 'single' && widget.totalDays != null) {
-      totalFare *= widget.totalDays!;
-      // Note: passenger count stays the same as it's per trip
+    // Apply multipliers for date range bookings
+    double finalTotalFare = baseTotalFare;
+
+    if (widget.dateRange != null && widget.dateRange != 'single') {
+      // Calculate multiplier based on date range
+      double multiplier = 1.0;
+      int days = widget.totalDays ?? 1;
+
+      switch (widget.dateRange) {
+        case 'week':
+          multiplier = days * 0.95; // 7 days with 5% discount
+          break;
+        case 'month':
+          multiplier = days * 0.85; // 30 days with 15% discount
+          break;
+        case '3months':
+          multiplier = days * 0.75; // 90 days with 25% discount
+          break;
+        default:
+          multiplier = days.toDouble();
+      }
+
+      finalTotalFare = baseTotalFare * multiplier;
+
+      print('🔍 DEBUG: Multi-day calculation:');
+      print('   Base fare: $baseTotalFare');
+      print('   Days: $days');
+      print('   Date range: ${widget.dateRange}');
+      print('   Multiplier: $multiplier');
+      print('   Final fare: $finalTotalFare');
     }
 
     _totalPassengers = totalPassengers;
-    _totalFare = totalFare;
+    _totalFare = finalTotalFare;
   }
 
   Future<void> _loadWalletBalance() async {
@@ -141,18 +179,37 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
         context,
         listen: false,
       );
+
+      print('🔍 DEBUG: Loading wallet balance...');
       await walletProvider.getWalletBalance();
+
       if (mounted) {
         setState(() {
           _walletBalance = walletProvider.balance;
+          // Auto-select wallet if sufficient balance
+          if (_walletBalance >= _totalFare) {
+            _selectedPaymentMethod = 'wallet';
+          }
         });
+        print('✅ DEBUG: Wallet balance loaded: $_walletBalance TZS');
       }
     } catch (e) {
-      // Handle wallet loading error
+      print('⚠️ DEBUG: Failed to load wallet balance: $e');
+      // Don't fail the entire page if wallet fails
+      if (mounted) {
+        setState(() {
+          _walletBalance = 0.0;
+          _selectedPaymentMethod = 'mobile_money';
+        });
+      }
     }
   }
 
   Future<void> _confirmBooking() async {
+    print('🔍 DEBUG: _confirmBooking called');
+    print('🔍 DEBUG: _showPaymentSection: $_showPaymentSection');
+    print('🔍 DEBUG: _selectedPaymentMethod: $_selectedPaymentMethod');
+
     if (!_showPaymentSection) {
       setState(() {
         _showPaymentSection = true;
@@ -160,7 +217,21 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
       return;
     }
 
-    if (!_formKey.currentState!.validate()) {
+    // Only validate form if payment section is shown AND we need validation
+    if (_selectedPaymentMethod == 'mobile_money') {
+      if (_formKey.currentState == null || !_formKey.currentState!.validate()) {
+        return;
+      }
+    }
+
+    // Additional validation for payment method
+    if (_selectedPaymentMethod == 'wallet' && _walletBalance < _totalFare) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Insufficient wallet balance'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return;
     }
 
@@ -175,6 +246,7 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
         await _createSingleBooking();
       }
     } catch (e) {
+      print('❌ DEBUG: Error in _confirmBooking: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -193,160 +265,407 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
   }
 
   Future<void> _createSingleBooking() async {
-    final bookingProvider = Provider.of<BookingProvider>(
-      context,
-      listen: false,
-    );
+    try {
+      final bookingProvider = Provider.of<BookingProvider>(
+        context,
+        listen: false,
+      );
 
-    final success = await bookingProvider.createBooking(
-      tripId: widget.tripId!,
-      pickupStopId: widget.pickupStopId,
-      dropoffStopId: widget.dropoffStopId,
-      passengerCount: _totalPassengers, // Remove selectedSeats parameter
-    );
+      print('🔍 DEBUG: Creating single booking...');
 
-    if (success && bookingProvider.currentBooking != null) {
-      final bookingId = bookingProvider.currentBooking!.id;
-      await _processPayment(bookingId);
-    } else {
-      throw Exception(bookingProvider.error ?? 'Failed to create booking');
+      // Convert single booking to the multiple booking format for consistency
+      final bookingData = {
+        'trip_id': widget.tripId!,
+        'pickup_stop_id': widget.pickupStopId,
+        'dropoff_stop_id': widget.dropoffStopId,
+        'passenger_count': _totalPassengers,
+        'seat_numbers': [], // Add seat selection if needed
+        'passenger_names': [], // Add passenger names if needed
+        'travel_date': DateTime.now().toIso8601String().split('T')[0],
+      };
+
+      // Use the multiple bookings method for consistency with all required parameters
+      final success = await bookingProvider.createMultipleBookings(
+        bookingsData: [bookingData],
+        dateRange: 'single',
+        totalDays: 1,
+        isMultiDay: false,
+      );
+
+      if (success &&
+          bookingProvider.multipleBookings != null &&
+          bookingProvider.multipleBookings!.isNotEmpty) {
+        final bookingId = bookingProvider.multipleBookings!.first.id;
+        await _processPayment(bookingId);
+      } else {
+        throw Exception(bookingProvider.error ?? 'Failed to create booking');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Error in _createSingleBooking: $e');
+      rethrow;
     }
   }
 
   Future<void> _createMultipleBookings() async {
-    final bookingProvider = Provider.of<BookingProvider>(
-      context,
-      listen: false,
-    );
-    List<int> bookingIds = [];
+    try {
+      print('🔍 DEBUG: _createMultipleBookings started');
+      print('🔍 DEBUG: widget.selectedTrips: ${widget.selectedTrips}');
+      print(
+        '🔍 DEBUG: widget.selectedTrips length: ${widget.selectedTrips?.length}',
+      );
+      print('🔍 DEBUG: widget.dateRange: ${widget.dateRange}');
+      print('🔍 DEBUG: widget.totalDays: ${widget.totalDays}');
 
-    // Create bookings for each trip
-    for (final tripData in widget.selectedTrips!) {
-      final success = await bookingProvider.createBooking(
-        tripId: tripData['tripId'],
-        pickupStopId: widget.pickupStopId,
-        dropoffStopId: widget.dropoffStopId,
-        passengerCount:
-            tripData['passengerCount'], // Remove selectedSeats parameter
+      // Add null checks for selectedTrips
+      if (widget.selectedTrips == null) {
+        throw Exception('Selected trips is null');
+      }
+
+      if (widget.selectedTrips!.isEmpty) {
+        throw Exception('No trips selected');
+      }
+
+      final bookingProvider = Provider.of<BookingProvider>(
+        context,
+        listen: false,
       );
 
-      if (success && bookingProvider.currentBooking != null) {
-        bookingIds.add(bookingProvider.currentBooking!.id);
-      } else {
-        throw Exception(
-          'Failed to create booking for trip ${tripData['tripId']}',
-        );
+      if (bookingProvider == null) {
+        throw Exception('Booking provider is null');
       }
-    }
 
-    // Process payment for all bookings
-    if (bookingIds.isNotEmpty) {
-      await _processMultiplePayments(bookingIds);
+      print('🔍 DEBUG: Processing ${widget.selectedTrips!.length} trips...');
+
+      // Convert selectedTrips to the correct format with detailed null checks
+      final bookingsData = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < widget.selectedTrips!.length; i++) {
+        final tripData = widget.selectedTrips![i];
+        print('🔍 DEBUG: Processing trip $i: $tripData');
+
+        // Check for required fields
+        final tripId = tripData['trip_id'];
+        final passengerCount = tripData['passenger_count'];
+        final travelDate = tripData['travel_date'];
+
+        print(
+          '🔍 DEBUG: Trip $i - tripId: $tripId, passengerCount: $passengerCount, travelDate: $travelDate',
+        );
+
+        if (tripId == null) {
+          throw Exception('Trip ID is null for trip $i');
+        }
+
+        if (passengerCount == null) {
+          throw Exception('Passenger count is null for trip $i');
+        }
+
+        if (travelDate == null) {
+          throw Exception('Travel date is null for trip $i');
+        }
+
+        final bookingData = {
+          'trip_id': tripId,
+          'pickup_stop_id': widget.pickupStopId,
+          'dropoff_stop_id': widget.dropoffStopId,
+          'passenger_count': passengerCount,
+          'seat_numbers': tripData['seat_numbers'] ?? [],
+          'passenger_names': tripData['passenger_names'] ?? [],
+          'travel_date': travelDate,
+        };
+
+        bookingsData.add(bookingData);
+        print('🔍 DEBUG: Added booking data for trip $i: $bookingData');
+      }
+
+      print('🔍 DEBUG: Final bookingsData: $bookingsData');
+      print('🔍 DEBUG: Calling createMultipleBookings with parameters:');
+      print('   - bookingsData: ${bookingsData.length} items');
+      print('   - dateRange: ${widget.dateRange}');
+      print('   - totalDays: ${widget.totalDays}');
+      print('   - isMultiDay: ${widget.dateRange != 'single'}');
+
+      final success = await bookingProvider.createMultipleBookings(
+        bookingsData: bookingsData,
+        dateRange: widget.dateRange ?? 'single',
+        totalDays: widget.totalDays ?? 1,
+        isMultiDay: widget.dateRange != 'single',
+      );
+
+      print('🔍 DEBUG: createMultipleBookings result: $success');
+      print(
+        '🔍 DEBUG: bookingProvider.multipleBookings: ${bookingProvider.multipleBookings}',
+      );
+      print('🔍 DEBUG: bookingProvider.error: ${bookingProvider.error}');
+
+      if (success && bookingProvider.multipleBookings != null) {
+        // Process payment for the total amount
+        final bookingIds =
+            bookingProvider.multipleBookings!.map((b) => b.id).toList();
+        print('🔍 DEBUG: Processing payment for booking IDs: $bookingIds');
+        await _processMultiplePayments(bookingIds);
+      } else {
+        final errorMessage =
+            bookingProvider.error ?? 'Failed to create multiple bookings';
+        print('❌ DEBUG: Booking creation failed: $errorMessage');
+        throw Exception(errorMessage);
+      }
+    } catch (e, stackTrace) {
+      print('❌ DEBUG: Error in _createMultipleBookings: $e');
+      print('❌ DEBUG: Stack trace: $stackTrace');
+      rethrow;
     }
   }
 
   Future<void> _processPayment(int bookingId) async {
-    final paymentProvider = Provider.of<PaymentProvider>(
-      context,
-      listen: false,
-    );
+    try {
+      print('🔍 DEBUG: Processing payment for booking $bookingId');
+      print('🔍 DEBUG: Payment method: $_selectedPaymentMethod');
+      print('🔍 DEBUG: Amount: $_totalFare');
 
-    bool success = false;
-    if (_selectedPaymentMethod == 'wallet') {
-      success = await paymentProvider.processWalletPayment(
-        bookingId,
+      // Add null checks
+      if (_selectedPaymentMethod.isEmpty) {
+        throw Exception('Please select a payment method');
+      }
+
+      if (_totalFare <= 0) {
+        throw Exception('Invalid fare amount');
+      }
+
+      if (_selectedPaymentMethod == 'wallet') {
+        await _processWalletPayment(bookingId);
+      } else if (_selectedPaymentMethod == 'mobile_money') {
+        await _processMobileMoneyPayment(bookingId);
+      } else {
+        throw Exception('Please select a payment method');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Payment processing failed: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _processWalletPayment(int bookingId) async {
+    try {
+      final walletProvider = Provider.of<WalletProvider>(
+        context,
+        listen: false,
+      );
+
+      if (walletProvider == null) {
+        throw Exception('Wallet service not available');
+      }
+
+      print('💳 DEBUG: Processing wallet payment...');
+      final success = await walletProvider.processWalletPayment(
+        bookingId: bookingId,
         amount: _totalFare,
       );
-    } else if (_selectedPaymentMethod == 'mobile_money') {
-      success = await paymentProvider.processMobileMoneyPayment(
+
+      if (success) {
+        print('✅ DEBUG: Wallet payment successful');
+        if (mounted) {
+          _showSuccessDialog('Payment completed successfully!');
+        }
+      } else {
+        throw Exception(walletProvider.error ?? 'Wallet payment failed');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Wallet payment error: $e');
+      throw Exception('Wallet payment failed: ${e.toString()}');
+    }
+  }
+
+  Future<void> _processMobileMoneyPayment(int bookingId) async {
+    try {
+      if (_phoneController.text.trim().isEmpty) {
+        throw Exception('Please enter your phone number');
+      }
+
+      print('📱 DEBUG: Processing mobile money payment...');
+
+      final paymentProvider = Provider.of<PaymentProvider>(
+        context,
+        listen: false,
+      );
+
+      if (paymentProvider == null) {
+        throw Exception('Payment service not available');
+      }
+
+      // FIX: Convert double to String and use correct method
+      final success = await paymentProvider.processMobileMoneyPayment(
         bookingId: bookingId,
         phoneNumber: _phoneController.text.trim(),
-        amount: _totalFare,
+        amount: _totalFare, // This method expects double
       );
-    }
 
-    if (success) {
-      _navigateToSuccess(bookingId);
-    } else {
-      throw Exception(paymentProvider.error ?? 'Payment processing failed');
+      if (success) {
+        print('✅ DEBUG: Mobile money payment initiated');
+        if (mounted) {
+          _showSuccessDialog(
+            'Payment initiated! Please complete on your phone.',
+          );
+        }
+      } else {
+        throw Exception(paymentProvider.error ?? 'Mobile money payment failed');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Mobile money payment error: $e');
+      throw Exception('Mobile money payment failed: ${e.toString()}');
     }
+  }
+
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => AlertDialog(
+            icon: Icon(Icons.check_circle, color: Colors.green, size: 48),
+            title: Text('Success!'),
+            content: Text(message),
+            actions: [
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.of(context).pop(); // Close dialog
+                  Navigator.of(context).pop(); // Go back to previous page
+                  Navigator.of(context).pop(); // Go back to main page
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                ),
+                child: Text('OK', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+    );
   }
 
   Future<void> _processMultiplePayments(List<int> bookingIds) async {
-    final paymentProvider = Provider.of<PaymentProvider>(
-      context,
-      listen: false,
-    );
+    try {
+      print('🔍 DEBUG: Processing payment for ${bookingIds.length} bookings');
 
-    // Process payment for the first booking (since your payment system might not support bulk payments)
-    // You can enhance this later to support bulk payments in your backend
-
-    bool success = false;
-    if (_selectedPaymentMethod == 'wallet') {
-      success = await paymentProvider.processWalletPayment(
-        bookingIds.first, // Use first booking ID as reference
-        amount: _totalFare,
-        // Remove relatedBookingIds parameter since it doesn't exist
-      );
-    } else if (_selectedPaymentMethod == 'mobile_money') {
-      success = await paymentProvider.processMobileMoneyPayment(
-        bookingId: bookingIds.first,
-        phoneNumber: _phoneController.text.trim(),
-        amount: _totalFare,
-        // Remove relatedBookingIds parameter since it doesn't exist
-      );
-    }
-
-    if (success) {
-      // If you need to handle multiple bookings, you could loop through them
-      // or implement a bulk payment system in your backend
-      for (int i = 1; i < bookingIds.length; i++) {
-        // For now, mark other bookings as paid or handle them separately
-        // You might want to implement a different approach here
+      if (bookingIds.isEmpty) {
+        throw Exception('No booking IDs provided for payment processing');
       }
 
-      _navigateToSuccess(bookingIds.first);
-    } else {
-      throw Exception(paymentProvider.error ?? 'Payment processing failed');
+      print('🔍 DEBUG: Booking IDs: $bookingIds');
+      print('🔍 DEBUG: Total amount: $_totalFare');
+
+      // Using Option 1 - single payment for all bookings
+      if (_selectedPaymentMethod == 'wallet') {
+        await _processWalletPaymentForMultiple(bookingIds);
+      } else if (_selectedPaymentMethod == 'mobile_money') {
+        await _processMobileMoneyPaymentForMultiple(bookingIds);
+      } else {
+        throw Exception('Please select a payment method');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Multiple payments processing failed: $e');
+      rethrow;
     }
   }
 
-  void _navigateToSuccess(int bookingId) {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => HomePage()),
-      (route) => false,
-    );
+  Future<void> _processWalletPaymentForMultiple(List<int> bookingIds) async {
+    try {
+      if (bookingIds.isEmpty) {
+        throw Exception('No bookings to process payment for');
+      }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      HomePage.navigateToTab(3); // Bookings tab
-
-      showDialog(
-        context: context,
-        builder:
-            (context) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.green, size: 30),
-                  SizedBox(width: 10),
-                  Text('Booking Confirmed!'),
-                ],
-              ),
-              content: Text(
-                widget.selectedTrips != null
-                    ? 'Your ${widget.selectedTrips!.length} bookings have been confirmed!'
-                    : 'Your booking #$bookingId has been confirmed!',
-                style: TextStyle(fontSize: 15),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
+      final walletProvider = Provider.of<WalletProvider>(
+        context,
+        listen: false,
       );
-    });
+
+      print('💳 DEBUG: Processing wallet payment for multiple bookings...');
+
+      // Process payment for the first booking with total amount
+      final success = await walletProvider.processWalletPayment(
+        bookingId: bookingIds.first,
+        amount: _totalFare,
+      );
+
+      if (success) {
+        print('✅ DEBUG: Multiple wallet payments successful');
+        if (mounted) {
+          _showSuccessDialog(
+            'Payment completed successfully for all bookings!',
+          );
+        }
+      } else {
+        throw Exception(walletProvider.error ?? 'Wallet payment failed');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Multiple wallet payments error: $e');
+      throw Exception('Wallet payment failed: ${e.toString()}');
+    }
+  }
+
+  Future<void> _processMobileMoneyPaymentForMultiple(
+    List<int> bookingIds,
+  ) async {
+    try {
+      if (_phoneController.text.isEmpty) {
+        throw Exception('Please enter your phone number');
+      }
+
+      print(
+        '📱 DEBUG: Processing mobile money payment for multiple bookings...',
+      );
+
+      final paymentProvider = Provider.of<PaymentProvider>(
+        context,
+        listen: false,
+      );
+
+      // Process payment for the first booking with total amount
+      final success = await paymentProvider.processMobileMoneyPayment(
+        bookingId: bookingIds.first,
+        phoneNumber: _phoneController.text.trim(),
+        amount: _totalFare,
+      );
+
+      if (success) {
+        print('✅ DEBUG: Multiple mobile money payments initiated');
+        if (mounted) {
+          _showSuccessDialog(
+            'Payment initiated for all bookings! Please complete on your phone.',
+          );
+        }
+      } else {
+        throw Exception(paymentProvider.error ?? 'Mobile money payment failed');
+      }
+    } catch (e) {
+      print('❌ DEBUG: Multiple mobile money payments error: $e');
+      throw Exception('Mobile money payment failed: ${e.toString()}');
+    }
+  }
+
+  void _navigateToSuccess([int? bookingId]) {
+    // Navigate back to home or bookings page
+    Navigator.of(context).popUntil((route) => route.isFirst);
+
+    // Show success message
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                widget.selectedTrips != null && widget.selectedTrips!.isNotEmpty
+                    ? 'Successfully booked ${widget.selectedTrips!.length} trips!'
+                    : 'Booking confirmed successfully!',
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
@@ -552,87 +871,62 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
   }
 
   Widget _buildPaymentSection() {
-    return FadeTransition(
-      opacity: _fadeAnimation,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Select Payment Method',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.payment, color: AppTheme.primaryColor, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Payment Method',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimaryColor,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+        SizedBox(height: 16),
 
-            // Payment options
-            _buildPaymentOption(
-              'mobile_money',
-              'Mobile Money',
-              Icons.smartphone,
-              'Pay with M-Pesa, Tigo Pesa, Airtel Money',
-              true,
-            ),
+        // Wallet Option
+        if (_walletBalance > 0) ...[
+          _buildPaymentOption(
+            'wallet',
+            'Wallet Payment',
+            'Balance: ${_walletBalance.toStringAsFixed(0)} TZS',
+            Icons.wallet,
+            _walletBalance >= _totalFare,
+            _walletBalance < _totalFare ? 'Insufficient balance' : null,
+          ),
+          SizedBox(height: 12),
+        ],
 
-            if (_walletBalance > 0)
-              _buildPaymentOption(
-                'wallet',
-                'Wallet',
-                Icons.account_balance_wallet,
-                'Balance: ${_walletBalance.toPrice}',
-                _walletBalance >= _totalFare,
-              ),
-
-            // Phone number input
-            if (_selectedPaymentMethod == 'mobile_money')
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: TextFormField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  decoration: InputDecoration(
-                    labelText: 'Phone Number',
-                    hintText: '0744963858',
-                    prefixIcon: const Icon(Icons.phone),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Phone number is required';
-                    }
-                    if (!RegExp(r'^(0|255)7\d{8}$').hasMatch(value.trim())) {
-                      return 'Enter valid Tanzanian number (07xxxxxxxx)';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-          ],
+        // Mobile Money Option
+        _buildPaymentOption(
+          'mobile_money',
+          'Mobile Money',
+          'Pay via Tigo Pesa, M-Pesa, Airtel Money',
+          Icons.phone_android,
+          true,
+          null,
         ),
-      ),
+
+        // Phone number input for mobile money
+        if (_selectedPaymentMethod == 'mobile_money') ...[
+          SizedBox(height: 16),
+          TextFormField(
+            controller: _phoneController,
+            decoration: InputDecoration(
+              labelText: 'Phone Number',
+              hintText: '0744123456',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.phone),
+            ),
+            keyboardType: TextInputType.phone,
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter your phone number';
+              }
+              if (!RegExp(r'^0[67]\d{8}$').hasMatch(value)) {
+                return 'Please enter a valid Tanzanian phone number';
+              }
+              return null;
+            },
+          ),
+        ],
+      ],
     );
   }
 
@@ -748,32 +1042,30 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
   Widget _buildPaymentOption(
     String value,
     String title,
-    IconData icon,
     String subtitle,
+    IconData icon,
     bool enabled,
+    String? disabledMessage,
   ) {
-    return GestureDetector(
+    final isSelected = _selectedPaymentMethod == value;
+
+    return InkWell(
       onTap:
-          enabled
-              ? () {
-                setState(() {
-                  _selectedPaymentMethod = value;
-                });
-              }
-              : null,
+          enabled ? () => setState(() => _selectedPaymentMethod = value) : null,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: enabled ? Colors.white : Colors.grey.shade100,
           border: Border.all(
-            color:
-                _selectedPaymentMethod == value && enabled
-                    ? AppTheme.primaryColor
-                    : Colors.grey.shade300,
-            width: _selectedPaymentMethod == value && enabled ? 2 : 1,
+            color: isSelected ? AppTheme.primaryColor : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
           ),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
+          color:
+              enabled
+                  ? (isSelected
+                      ? AppTheme.primaryColor.withOpacity(0.05)
+                      : Colors.white)
+                  : Colors.grey[100],
         ),
         child: Row(
           children: [
@@ -781,13 +1073,10 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
               icon,
               color:
                   enabled
-                      ? (_selectedPaymentMethod == value
-                          ? AppTheme.primaryColor
-                          : Colors.grey.shade600)
-                      : Colors.grey.shade400,
-              size: 24,
+                      ? (isSelected ? AppTheme.primaryColor : Colors.grey[600])
+                      : Colors.grey[400],
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -796,40 +1085,24 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
                     title,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 16,
-                      color:
-                          enabled
-                              ? AppTheme.textPrimaryColor
-                              : Colors.grey.shade500,
+                      color: enabled ? Colors.black87 : Colors.grey[500],
                     ),
                   ),
-                  const SizedBox(height: 2),
                   Text(
-                    subtitle,
+                    disabledMessage ?? subtitle,
                     style: TextStyle(
                       fontSize: 12,
                       color:
-                          enabled
-                              ? AppTheme.textSecondaryColor
-                              : Colors.grey.shade400,
+                          disabledMessage != null
+                              ? Colors.red
+                              : Colors.grey[600],
                     ),
                   ),
                 ],
               ),
             ),
-            Radio<String>(
-              value: value,
-              groupValue: _selectedPaymentMethod,
-              onChanged:
-                  enabled
-                      ? (value) {
-                        setState(() {
-                          _selectedPaymentMethod = value!;
-                        });
-                      }
-                      : null,
-              activeColor: AppTheme.primaryColor,
-            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: AppTheme.primaryColor),
           ],
         ),
       ),

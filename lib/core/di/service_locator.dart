@@ -1,5 +1,6 @@
 import 'package:daladala_smart_app/core/network/api_client.dart';
 import 'package:daladala_smart_app/features/bookings/domain/usecases/cancel_booking_usecase.dart';
+import 'package:daladala_smart_app/features/bookings/domain/usecases/create_multiple_bookings_usecase.dart';
 import 'package:daladala_smart_app/features/bookings/domain/usecases/get_booking_details_usecase.dart';
 import 'package:daladala_smart_app/features/profile/data/datasources/profile_datasource.dart';
 import 'package:daladala_smart_app/features/profile/data/repositories/profile_repository_impl.dart';
@@ -128,8 +129,6 @@ Future<void> setupServiceLocator() async {
 
   // Bookings Feature
   getIt.registerSingleton<BookingDataSource>(
-    // For debugging purposes, you can use the mock implementation
-    // MockBookingDataSource()
     BookingDataSourceImpl(dioClient: getIt<DioClient>()),
   );
 
@@ -156,11 +155,17 @@ Future<void> setupServiceLocator() async {
     CancelBookingUseCase(repository: getIt<BookingRepository>()),
   );
 
+  // FIX: Change from registerLazySingleton to registerSingleton
+  getIt.registerSingleton<CreateMultipleBookingsUseCase>(
+    CreateMultipleBookingsUseCase(getIt<BookingRepository>()),
+  );
+
   getIt.registerFactory<BookingProvider>(
     () => BookingProvider(
       getBookingDetailsUseCase: getIt<GetBookingDetailsUseCase>(),
       getUserBookingsUseCase: getIt<GetUserBookingsUseCase>(),
       createBookingUseCase: getIt<CreateBookingUseCase>(),
+      createMultipleBookingsUseCase: getIt<CreateMultipleBookingsUseCase>(),
       cancelBookingUseCase: getIt<CancelBookingUseCase>(),
     ),
   );
@@ -239,11 +244,8 @@ Future<void> setupServiceLocator() async {
     GetTripDetailsUseCase(repository: getIt<TripRepository>()),
   );
 
-  getIt.registerFactory<TripProvider>(
-    () => TripProvider(
-    ),
-  );
-  
+  getIt.registerFactory<TripProvider>(() => TripProvider());
+
   // Profile Feature Dependencies
   getIt.registerSingleton<ProfileDataSource>(
     ProfileDataSourceImpl(apiClient: getIt<ApiClient>()),

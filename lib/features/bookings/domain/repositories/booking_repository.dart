@@ -2,8 +2,7 @@
 import 'package:dartz/dartz.dart';
 import '../../../../core/error/failures.dart';
 import '../entities/booking.dart';
-import '../usecases/create_multiple_bookings_usecase.dart';
-
+import '../../data/models/multiple_bookings_response.dart';
 abstract class BookingRepository {
   // Existing methods with enhanced parameters
   Future<Either<Failure, List<Booking>>> getUserBookings({String? status});
@@ -27,8 +26,11 @@ abstract class BookingRepository {
 
   // NEW: Enhanced booking methods
   Future<Either<Failure, MultipleBookingsResponse>> createMultipleBookings(
-    List<Map<String, dynamic>> bookingsData,
-  );
+    List<Map<String, dynamic>> bookingsData, {
+    String? dateRange,
+    int? totalDays,
+    bool? isMultiDay,
+  });
 
   Future<Either<Failure, void>> reserveSeats(
     int bookingId,

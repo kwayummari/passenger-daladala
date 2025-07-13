@@ -1,9 +1,9 @@
-// lib/features/bookings/domain/usecases/create_multiple_bookings_usecase.dart - UPDATED VERSION
+// lib/features/bookings/domain/usecases/create_multiple_bookings_usecase.dart
 import 'package:dartz/dartz.dart';
 import '../../../../core/error/failures.dart';
 import '../../../../core/usecases/usecase.dart';
-import '../entities/booking.dart';
 import '../repositories/booking_repository.dart';
+import '../../data/models/multiple_bookings_response.dart'; // Add this import
 
 class CreateMultipleBookingsUseCase
     implements UseCase<MultipleBookingsResponse, CreateMultipleBookingsParams> {
@@ -15,30 +15,25 @@ class CreateMultipleBookingsUseCase
   Future<Either<Failure, MultipleBookingsResponse>> call(
     CreateMultipleBookingsParams params,
   ) async {
-    return await repository.createMultipleBookings(params.bookingsData);
+    return await repository.createMultipleBookings(
+      params.bookingsData,
+      dateRange: params.dateRange,
+      totalDays: params.totalDays,
+      isMultiDay: params.isMultiDay,
+    );
   }
 }
 
 class CreateMultipleBookingsParams {
   final List<Map<String, dynamic>> bookingsData;
-
-  CreateMultipleBookingsParams({required this.bookingsData});
-}
-
-class MultipleBookingsResponse {
-  final List<Booking> bookings;
-  final double totalFare;
-  final int totalBookings;
-  final String? bookingReference;
-  final bool isMultiDay;
   final String? dateRange;
+  final int? totalDays;
+  final bool? isMultiDay;
 
-  MultipleBookingsResponse({
-    required this.bookings,
-    required this.totalFare,
-    required this.totalBookings,
-    this.bookingReference,
-    this.isMultiDay = false,
+  CreateMultipleBookingsParams({
+    required this.bookingsData,
     this.dateRange,
+    this.totalDays,
+    this.isMultiDay,
   });
 }

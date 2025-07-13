@@ -4,7 +4,6 @@ import '../../domain/usecases/get_booking_details_usecase.dart';
 import '../../domain/usecases/get_user_bookings_usecase.dart';
 import '../../domain/usecases/create_booking_usecase.dart';
 import '../../domain/usecases/cancel_booking_usecase.dart';
-// Add these new imports for multiple booking functionality
 import '../../domain/usecases/create_multiple_bookings_usecase.dart';
 import '../../domain/usecases/reserve_seats_usecase.dart';
 import '../../domain/usecases/auto_assign_seats_usecase.dart';
@@ -137,44 +136,69 @@ class BookingProvider extends ChangeNotifier {
   // NEW: Create multiple bookings method
   Future<bool> createMultipleBookings({
     required List<Map<String, dynamic>> bookingsData,
+    String? dateRange,
+    int? totalDays,
+    bool? isMultiDay,
   }) async {
-    if (createMultipleBookingsUseCase == null) {
-      _error = 'Multiple booking feature not available';
+    try {
+      // Check if the use case is available
+      if (createMultipleBookingsUseCase == null) {
+        print('❌ CreateMultipleBookingsUseCase is null');
+        _error =
+            'Multiple booking feature not available. Please update the app.';
+        notifyListeners();
+        return false;
+      }
+
+      if (bookingsData.isEmpty) {
+        _error = 'No booking data provided';
+        notifyListeners();
+        return false;
+      }
+
+      _isLoading = true;
+      _error = null;
+      _multipleBookings = null;
+      _totalFare = null;
+      notifyListeners();
+
+      final params = CreateMultipleBookingsParams(
+        bookingsData: bookingsData,
+        dateRange: dateRange,
+        totalDays: totalDays,
+        isMultiDay: isMultiDay,
+      );
+
+      print('🔍 Calling createMultipleBookingsUseCase with params');
+      final result = await createMultipleBookingsUseCase!(params);
+
+      bool success = false;
+
+      result.fold(
+        (failure) {
+          print('❌ Booking creation failed: ${failure.message}');
+          _error = failure.message;
+        },
+        (response) {
+          print('✅ Booking creation successful');
+          _multipleBookings = response.bookings;
+          _totalFare = response.totalFare;
+          _error = null;
+          success = true;
+        },
+      );
+
+      _isLoading = false;
+      notifyListeners();
+
+      return success;
+    } catch (e) {
+      print('❌ Exception in createMultipleBookings: $e');
+      _error = 'Failed to create bookings: ${e.toString()}';
+      _isLoading = false;
       notifyListeners();
       return false;
     }
-
-    _isLoading = true;
-    _error = null;
-    _multipleBookings = null;
-    _totalFare = null;
-    notifyListeners();
-
-    final params = CreateMultipleBookingsParams(bookingsData: bookingsData);
-    final result = await createMultipleBookingsUseCase!(params);
-
-    bool success = false;
-
-    result.fold(
-      (failure) {
-        _error = failure.message;
-      },
-      (response) {
-        _multipleBookings = response.bookings;
-        _totalFare = response.totalFare;
-        // Set the first booking as current for payment processing
-        if (response.bookings.isNotEmpty) {
-          _currentBooking = response.bookings.first;
-        }
-        _error = null;
-        success = true;
-      },
-    );
-
-    _isLoading = false;
-    notifyListeners();
-
-    return success;
   }
 
   // NEW: Reserve seats method

@@ -1,8 +1,10 @@
 // lib/features/bookings/data/datasources/booking_datasource.dart - FIXED VERSION
 
+import 'package:daladala_smart_app/features/bookings/domain/usecases/create_multiple_bookings_usecase.dart';
+
 import '../../../../core/error/exceptions.dart';
 import '../../../../core/network/dio_client.dart';
-import '../../../../core/utils/constants.dart';
+import '../models/multiple_bookings_response.dart';
 import '../models/booking_model.dart';
 
 abstract class BookingDataSource {
@@ -20,10 +22,11 @@ abstract class BookingDataSource {
   Future<void> cancelBooking(int bookingId, {bool cancelEntireGroup = false});
 
   // NEW: Enhanced booking methods
-  Future<Map<String, dynamic>> createMultipleBookings(
+  Future<MultipleBookingsResponse> createMultipleBookings(
     List<Map<String, dynamic>> bookingsData, {
-    bool isMultiDay = true,
-    String dateRange = 'week',
+    String? dateRange,
+    int? totalDays,
+    bool? isMultiDay,
   });
 
   Future<Map<String, dynamic>> getAvailableSeats({
@@ -207,31 +210,43 @@ class BookingDataSourceImpl implements BookingDataSource {
   }
 
   @override
-  Future<Map<String, dynamic>> createMultipleBookings(
+  Future<MultipleBookingsResponse> createMultipleBookings(
     List<Map<String, dynamic>> bookingsData, {
-    bool isMultiDay = true,
-    String dateRange = 'week',
+    String? dateRange,
+    int? totalDays,
+    bool? isMultiDay,
   }) async {
     try {
-      final Map<String, dynamic> data = {
+      final data = {
         'bookings_data': bookingsData,
-        'is_multi_day': isMultiDay,
-        'date_range': dateRange,
+        'is_multi_day': isMultiDay ?? false,
+        'date_range': dateRange ?? 'single',
+        'total_days': totalDays ?? 1,
       };
+
+      print('📤 Sending multiple bookings request: $data');
 
       final response = await dioClient.post('/bookings/multiple', data: data);
 
-      if (response.statusCode == 201) {
-        return response.data['data'];
+      print('📥 Multiple bookings response: $response');
+
+      if (response['status'] == 'success') {
+        // Parse the response data
+        return MultipleBookingsResponse.fromJson(response['data']);
       } else {
         throw ServerException(
-          message:
-              response.data['message'] ?? 'Failed to create multiple bookings',
+          message: response['message'] ?? 'Failed to create multiple bookings',
         );
       }
     } catch (e) {
-      if (e is ServerException) rethrow;
-      throw ServerException(message: 'Failed to create multiple bookings: $e');
+      print('❌ Multiple bookings error: $e');
+      if (e is ServerException) {
+        rethrow;
+      } else {
+        throw ServerException(
+          message: 'Failed to create multiple bookings: ${e.toString()}',
+        );
+      }
     }
   }
 

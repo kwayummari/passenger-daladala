@@ -33,78 +33,103 @@ class BookingModel extends Booking {
   });
 
   factory BookingModel.fromJson(Map<String, dynamic> json) {
-    return BookingModel(
-      id: json['booking_id'] as int,
-      userId: json['user_id'] as int,
-      tripId: json['trip_id'] as int,
-      pickupStopId: json['pickup_stop_id'] as int,
-      dropoffStopId: json['dropoff_stop_id'] as int,
-      bookingTime: DateTime.parse(json['booking_time'] as String),
-      fareAmount: (json['fare_amount'] as num).toDouble(),
-      passengerCount: json['passenger_count'] as int,
-      seatNumbers:
-          json['seat_numbers'] != null
-              ? (json['seat_numbers'] as String).split(',')
-              : null,
-      bookingType: json['booking_type'] as String? ?? 'regular',
-      bookingDate:
-          json['booking_date'] != null
-              ? DateTime.parse(json['booking_date'] as String)
-              : null,
-      status: json['status'] as String? ?? 'pending',
-      paymentStatus: json['payment_status'] as String? ?? 'pending',
-      createdAt:
-          json['created_at'] != null
-              ? DateTime.parse(json['created_at'] as String)
-              : null,
-      updatedAt:
-          json['updated_at'] != null
-              ? DateTime.parse(json['updated_at'] as String)
-              : null,
-      // Enhanced fields
-      bookingReference: json['booking_reference'] as String?,
-      isMultiDay: json['is_multi_day'] as bool? ?? false,
-      travelDate:
-          json['travel_date'] != null
-              ? DateTime.parse(json['travel_date'] as String)
-              : null,
-      qrCode: json['qr_code'] as String? ?? json['qr_code_data'] as String?,
-      seatDetails:
-          json['seat_details'] != null
-              ? (json['seat_details'] as List)
-                  .map((e) => SeatDetailModel.fromJson(e))
-                  .toList()
-              : null,
-      routeInfo:
-          json['route_info'] != null
-              ? RouteInfoModel.fromJson(json['route_info'])
-              : null,
-      pickupStop:
-          json['pickup_stop'] != null || json['pickupStop'] != null
-              ? StopInfoModel.fromJson(
-                json['pickup_stop'] ?? json['pickupStop'],
-              )
-              : null,
-      dropoffStop:
-          json['dropoff_stop'] != null || json['dropoffStop'] != null
-              ? StopInfoModel.fromJson(
-                json['dropoff_stop'] ?? json['dropoffStop'],
-              )
-              : null,
-      relatedBookings:
-          json['related_bookings'] != null
-              ? (json['related_bookings'] as List)
-                  .map((e) => RelatedBookingModel.fromJson(e))
-                  .toList()
-              : null,
-      seatAssignments:
-          json['seat_assignments'] != null
-              ? (json['seat_assignments'] is String
-                      ? jsonDecode(json['seat_assignments'] as String)
-                      : json['seat_assignments'])
-                  as List<dynamic>?
-              : null,
-    );
+    try {
+      print('🔍 DEBUG: Parsing booking from JSON: $json');
+
+      return BookingModel(
+        id: _parseInt(json['booking_id']),
+        userId: _parseInt(json['user_id']),
+        tripId: _parseInt(json['trip_id']),
+        pickupStopId: _parseInt(json['pickup_stop_id']),
+        dropoffStopId: _parseInt(json['dropoff_stop_id']),
+        bookingTime: _parseDateTime(json['booking_time']) ?? DateTime.now(),
+        fareAmount: _parseDouble(json['fare_amount']) ?? 0.0,
+        passengerCount: _parseInt(json['passenger_count']) ?? 1,
+        seatNumbers: _parseSeatNumbers(json['seat_numbers']),
+        status: json['status']?.toString() ?? 'pending',
+        paymentStatus: json['payment_status']?.toString() ?? 'pending',
+
+        // Handle additional fields from the backend response
+        travelDate: _parseDate(json['travel_date']),
+        bookingReference: json['booking_reference']?.toString(),
+        qrCode: json['qr_code']?.toString(),
+
+        // Handle pickup/dropoff stops if present
+        pickupStop:
+            json['pickup_stop'] != null
+                ? StopInfoModel.fromJson(json['pickup_stop'])
+                : null,
+        dropoffStop:
+            json['dropoff_stop'] != null
+                ? StopInfoModel.fromJson(json['dropoff_stop'])
+                : null,
+
+        // Handle route info if present
+        routeInfo:
+            json['route_info'] != null || json['route_name'] != null
+                ? RouteInfoModel.fromJson({
+                  'route_id': json['route_id'] ?? 0,
+                  'route_name': json['route_name'] ?? 'Unknown Route',
+                  'start_point': json['route_info']?['start_point'],
+                  'end_point': json['route_info']?['end_point'],
+                })
+                : null,
+      );
+    } catch (e) {
+      print('❌ Error parsing booking: $e');
+      rethrow;
+    }
+  }
+
+  // Add these helper methods to BookingModel
+  static int _parseInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  static double _parseDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  static DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  static DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+    if (value is String) {
+      try {
+        return DateTime.parse(value);
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  static List<String> _parseSeatNumbers(dynamic value) {
+    if (value == null) return [];
+    if (value is List) {
+      return value.map((e) => e.toString()).toList();
+    }
+    if (value is String) {
+      return value.split(',').map((e) => e.trim()).toList();
+    }
+    return [];
   }
 
   Map<String, dynamic> toJson() {
