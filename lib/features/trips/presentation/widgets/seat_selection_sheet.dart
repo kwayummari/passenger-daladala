@@ -47,16 +47,47 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
     super.initState();
     _selectedSeats = List.from(widget.selectedSeats);
     _passengerCount = _selectedSeats.isNotEmpty ? _selectedSeats.length : 1;
-    _initializeNameControllers();
-    _loadSeatData();
+    _loadSeats();
   }
 
-  @override
-  void dispose() {
-    for (final controller in _nameControllers) {
-      controller.dispose();
+  Future<void> _loadSeats() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      print('🔍 DEBUG: Loading seats for trip ${widget.trip.id}');
+
+      final bookingDataSource = getIt<BookingDataSource>();
+
+      final seatData = await bookingDataSource.getAvailableSeats(
+        tripId: widget.trip.id,
+        pickupStopId: widget.pickupStopId,
+        dropoffStopId: widget.dropoffStopId,
+        travelDate: widget.travelDate,
+      );
+
+      print('✅ DEBUG: Seat data loaded successfully');
+      print(
+        '🔍 DEBUG: Available seats: ${seatData['available_seats']?.length ?? 0}',
+      );
+
+      setState(() {
+        _seatData = seatData;
+        _isLoading = false;
+        _error = null;
+      });
+
+      // Initialize passenger name controllers
+      _initializeNameControllers();
+    } catch (e) {
+      print('❌ DEBUG: Error loading seats: $e');
+      setState(() {
+        _isLoading = false;
+        _error = 'Failed to load seats information: ${e.toString()}';
+      });
     }
-    super.dispose();
   }
 
   void _initializeNameControllers() {
@@ -70,134 +101,6 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
     }
   }
 
-  Future<void> _loadSeatData() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
-    try {
-      final bookingDataSource = getIt<BookingDataSource>();
-      final seatData = await bookingDataSource.getAvailableSeats(
-        tripId: widget.trip.id,
-        pickupStopId: widget.pickupStopId,
-        dropoffStopId: widget.dropoffStopId,
-        travelDate: widget.travelDate,
-      );
-
-      setState(() {
-        _seatData = seatData;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = 'Failed to load seat information: $e';
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _toggleSeat(String seatNumber) {
-    setState(() {
-      if (_selectedSeats.contains(seatNumber)) {
-        _selectedSeats.remove(seatNumber);
-      } else {
-        if (_selectedSeats.length < widget.maxPassengers) {
-          _selectedSeats.add(seatNumber);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Maximum ${widget.maxPassengers} passengers allowed',
-              ),
-              backgroundColor: Colors.orange,
-            ),
-          );
-          return;
-        }
-      }
-
-      _passengerCount = _selectedSeats.length;
-      _updateNameControllers();
-    });
-  }
-
-  void _updateNameControllers() {
-    // Adjust name controllers based on selected seats
-    while (_nameControllers.length < _passengerCount) {
-      _nameControllers.add(TextEditingController());
-    }
-    while (_nameControllers.length > _passengerCount) {
-      _nameControllers.removeLast().dispose();
-    }
-  }
-
-  Future<void> _autoAssignSeats() async {
-    if (_passengerCount == 0) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final bookingDataSource = getIt<BookingDataSource>();
-      // ✅ FIXED: Use the correct method name with proper parameters
-      final assignedSeats = await bookingDataSource.autoAssignSeatsForTrip(
-        tripId: widget.trip.id,
-        pickupStopId: widget.pickupStopId,
-        dropoffStopId: widget.dropoffStopId,
-        passengerCount: _passengerCount,
-        travelDate: widget.travelDate,
-      );
-
-      setState(() {
-        _selectedSeats = assignedSeats;
-        _updateNameControllers();
-        _isLoading = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Seats auto-assigned: ${assignedSeats.join(", ")}'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to auto-assign seats: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _confirmSelection() {
-    if (_selectedSeats.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please select at least one seat'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // Get passenger names
-    final names =
-        _nameControllers
-            .map((controller) => controller.text.trim())
-            .where((name) => name.isNotEmpty)
-            .toList();
-
-    widget.onSeatsSelected(_selectedSeats, _passengerCount, names);
-    Navigator.pop(context);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -208,67 +111,41 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
       ),
       child: Column(
         children: [
-          _buildHeader(),
-          if (_isLoading)
-            Expanded(child: LoadingIndicator())
-          else if (_error != null)
-            Expanded(child: _buildErrorView())
-          else
-            Expanded(child: _buildSeatSelection()),
-          _buildBottomActions(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-      ),
-      child: Column(
-        children: [
+          // Header
           Container(
-            width: 40,
-            height: 4,
+            padding: EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(2),
+              color: AppTheme.primaryColor,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Select Seats',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
             ),
           ),
-          SizedBox(height: 16),
-          Row(
-            children: [
-              Icon(
-                Icons.airline_seat_recline_normal,
-                color: AppTheme.primaryColor,
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Select Seats',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      widget.trip.vehiclePlate ?? 'Vehicle ${widget.trip.id}',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Cancel'),
-              ),
-            ],
+
+          // Content
+          Expanded(
+            child:
+                _isLoading
+                    ? Center(child: LoadingIndicator())
+                    : _error != null
+                    ? _buildErrorView()
+                    : _buildSeatSelection(),
           ),
         ],
       ),
@@ -280,19 +157,28 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.error_outline, size: 64, color: Colors.grey[400]),
+          Icon(Icons.error_outline, size: 64, color: Colors.red),
           SizedBox(height: 16),
+          Text(
+            'Error Loading Seats',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.red,
+            ),
+          ),
+          SizedBox(height: 8),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 32),
             child: Text(
-              _error!,
-              style: TextStyle(color: Colors.grey[600]),
+              _error ?? 'Unknown error occurred',
               textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[600]),
             ),
           ),
-          SizedBox(height: 16),
+          SizedBox(height: 24),
           ElevatedButton(
-            onPressed: _loadSeatData,
+            onPressed: _loadSeats,
             child: Text('Retry'),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryColor,
@@ -305,332 +191,235 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
   }
 
   Widget _buildSeatSelection() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          _buildPassengerCountSelector(),
-          _buildSeatMap(),
-          _buildPassengerNamesForm(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPassengerCountSelector() {
-    return Container(
-      margin: EdgeInsets.all(16),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Number of Passengers',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-          SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed:
-                          _passengerCount > 1
-                              ? () {
-                                setState(() {
-                                  _passengerCount--;
-                                  if (_selectedSeats.length > _passengerCount) {
-                                    _selectedSeats =
-                                        _selectedSeats
-                                            .take(_passengerCount)
-                                            .toList();
-                                  }
-                                  _updateNameControllers();
-                                });
-                              }
-                              : null,
-                      icon: Icon(Icons.remove_circle_outline),
-                      color: AppTheme.primaryColor,
-                    ),
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '$_passengerCount',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed:
-                          _passengerCount < widget.maxPassengers
-                              ? () {
-                                setState(() {
-                                  _passengerCount++;
-                                  _updateNameControllers();
-                                });
-                              }
-                              : null,
-                      icon: Icon(Icons.add_circle_outline),
-                      color: AppTheme.primaryColor,
-                    ),
-                  ],
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _autoAssignSeats,
-                icon: Icon(Icons.auto_fix_high, size: 18),
-                label: Text('Auto Assign'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSeatMap() {
-    if (_seatData == null) return SizedBox.shrink();
+    if (_seatData == null) {
+      return Center(child: Text('No seat data available'));
+    }
 
     final availableSeats =
-        _seatData!['available_seats'] as List<dynamic>? ?? [];
-    final occupiedSeats = _seatData!['occupied_seats'] as List<dynamic>? ?? [];
-    final seatSummary =
-        _seatData!['seat_summary'] as Map<String, dynamic>? ?? {};
+        (_seatData!['available_seats'] as List?)
+            ?.cast<Map<String, dynamic>>() ??
+        [];
+    final occupiedSeats =
+        (_seatData!['occupied_seats'] as List?)?.cast<Map<String, dynamic>>() ??
+        [];
+    final unavailableSeats =
+        (_seatData!['unavailable_seats'] as List?)
+            ?.cast<Map<String, dynamic>>() ??
+        [];
 
-    // Create a map of all seats
-    Map<String, String> seatStatuses = {};
-
-    for (final seat in availableSeats) {
-      seatStatuses[seat['seat_number']] = 'available';
-    }
-
-    for (final seat in occupiedSeats) {
-      seatStatuses[seat['seat_number']] = 'occupied';
-    }
-
-    // Generate seat layout (simplified - you may want to customize based on vehicle type)
-    final totalSeats = seatSummary['total_seats'] ?? 0;
-    final seatsPerRow = 4; // Typical daladala layout
-    final rows =
-        totalSeats > 0
-            ? (totalSeats / seatsPerRow).ceil()
-            : 7; // Default 7 rows
-
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: 16),
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      children: [
+        // Seat selection mode toggle
+        Padding(
+          padding: EdgeInsets.all(16),
+          child: Row(
             children: [
-              Text(
-                'Seat Map',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-              Text(
-                '${_selectedSeats.length}/$_passengerCount selected',
-                style: TextStyle(
-                  color: AppTheme.primaryColor,
-                  fontWeight: FontWeight.w500,
+              Expanded(
+                child: Text(
+                  'Passengers: $_passengerCount (Max: ${widget.maxPassengers})',
+                  style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
+              Switch(
+                value: _autoAssignMode,
+                onChanged: (value) {
+                  setState(() {
+                    _autoAssignMode = value;
+                    if (value) {
+                      _selectedSeats.clear();
+                    }
+                  });
+                },
+              ),
+              Text('Auto-assign'),
             ],
           ),
-          SizedBox(height: 16),
-          // Driver area
-          Container(
-            padding: EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(8),
-            ),
+        ),
+
+        // Passenger count selector
+        if (!_autoAssignMode) ...[
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.drive_eta, size: 20, color: Colors.grey[600]),
-                SizedBox(width: 8),
-                Text('Driver', style: TextStyle(color: Colors.grey[600])),
+                Text('Passengers: '),
+                IconButton(
+                  onPressed:
+                      _passengerCount > 1
+                          ? () {
+                            setState(() {
+                              _passengerCount--;
+                              if (_selectedSeats.length > _passengerCount) {
+                                _selectedSeats =
+                                    _selectedSeats
+                                        .take(_passengerCount)
+                                        .toList();
+                              }
+                              _initializeNameControllers();
+                            });
+                          }
+                          : null,
+                  icon: Icon(Icons.remove),
+                ),
+                Text('$_passengerCount'),
+                IconButton(
+                  onPressed:
+                      _passengerCount < widget.maxPassengers
+                          ? () {
+                            setState(() {
+                              _passengerCount++;
+                              _initializeNameControllers();
+                            });
+                          }
+                          : null,
+                  icon: Icon(Icons.add),
+                ),
               ],
             ),
           ),
-          SizedBox(height: 16),
-          // Seat grid
-          ...List.generate(rows, (rowIndex) {
-            return Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: List.generate(seatsPerRow, (seatIndex) {
-                  final seatNumber =
-                      '${String.fromCharCode(65 + rowIndex)}${seatIndex + 1}';
-                  final status = seatStatuses[seatNumber] ?? 'unavailable';
-                  final isSelected = _selectedSeats.contains(seatNumber);
-
-                  return _buildSeatWidget(seatNumber, status, isSelected);
-                }),
-              ),
-            );
-          }),
-          SizedBox(height: 16),
-          _buildSeatLegend(),
         ],
-      ),
-    );
-  }
 
-  Widget _buildSeatWidget(String seatNumber, String status, bool isSelected) {
-    Color seatColor;
-    Color textColor;
-    bool isClickable = false;
-
-    switch (status) {
-      case 'available':
-        seatColor = isSelected ? AppTheme.primaryColor : Colors.grey[200]!;
-        textColor = isSelected ? Colors.white : Colors.grey[700]!;
-        isClickable = true;
-        break;
-      case 'occupied':
-        seatColor = Colors.red[100]!;
-        textColor = Colors.red[700]!;
-        break;
-      default:
-        seatColor = Colors.grey[100]!;
-        textColor = Colors.grey[400]!;
-    }
-
-    return GestureDetector(
-      onTap: isClickable ? () => _toggleSeat(seatNumber) : null,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: seatColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? AppTheme.primaryColor : Colors.grey[300]!,
-            width: isSelected ? 2 : 1,
+        // Seat grid
+        if (!_autoAssignMode) ...[
+          Expanded(
+            child: _buildSeatGrid(
+              availableSeats,
+              occupiedSeats,
+              unavailableSeats,
+            ),
           ),
-        ),
-        child: Center(
-          child: Text(
-            seatNumber,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: textColor,
+        ],
+
+        // Passenger names input
+        if (_selectedSeats.isNotEmpty || _autoAssignMode) ...[
+          _buildPassengerNamesInput(),
+        ],
+
+        // Confirm button
+        Padding(
+          padding: EdgeInsets.all(16),
+          child: ElevatedButton(
+            onPressed: _canConfirm() ? _confirmSelection : null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              minimumSize: Size(double.infinity, 50),
+            ),
+            child: Text(
+              _autoAssignMode
+                  ? 'Confirm Auto-Assignment ($_passengerCount passengers)'
+                  : 'Confirm Selection (${_selectedSeats.length} seats)',
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSeatLegend() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildLegendItem('Available', Colors.grey[200]!, Colors.grey[700]!),
-        _buildLegendItem('Selected', AppTheme.primaryColor, Colors.white),
-        _buildLegendItem('Occupied', Colors.red[100]!, Colors.red[700]!),
       ],
     );
   }
 
-  Widget _buildLegendItem(String label, Color bgColor, Color textColor) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-        ),
-        SizedBox(width: 6),
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-      ],
-    );
-  }
+  Widget _buildSeatGrid(
+    List<Map<String, dynamic>> available,
+    List<Map<String, dynamic>> occupied,
+    List<Map<String, dynamic>> unavailable,
+  ) {
+    // Create a combined list and sort by seat number
+    final allSeats = <Map<String, dynamic>>[];
 
-  Widget _buildPassengerNamesForm() {
-    if (_selectedSeats.isEmpty) return SizedBox.shrink();
+    for (final seat in available) {
+      allSeats.add({...seat, 'status': 'available'});
+    }
+    for (final seat in occupied) {
+      allSeats.add({...seat, 'status': 'occupied'});
+    }
+    for (final seat in unavailable) {
+      allSeats.add({...seat, 'status': 'unavailable'});
+    }
 
-    return Container(
-      margin: EdgeInsets.all(16),
+    allSeats.sort((a, b) {
+      final aNum = int.tryParse(a['seat_number'].toString()) ?? 0;
+      final bNum = int.tryParse(b['seat_number'].toString()) ?? 0;
+      return aNum.compareTo(bNum);
+    });
+
+    return GridView.builder(
       padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 5,
-            offset: Offset(0, 2),
-          ),
-        ],
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        childAspectRatio: 1,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
       ),
+      itemCount: allSeats.length,
+      itemBuilder: (context, index) {
+        final seat = allSeats[index];
+        final seatNumber = seat['seat_number'].toString();
+        final status = seat['status'];
+        final isSelected = _selectedSeats.contains(seatNumber);
+
+        Color backgroundColor;
+        Color textColor = Colors.white;
+        bool isSelectable = status == 'available';
+
+        switch (status) {
+          case 'available':
+            backgroundColor = isSelected ? AppTheme.primaryColor : Colors.green;
+            break;
+          case 'occupied':
+            backgroundColor = Colors.red;
+            isSelectable = false;
+            break;
+          case 'unavailable':
+            backgroundColor = Colors.grey;
+            isSelectable = false;
+            break;
+          default:
+            backgroundColor = Colors.grey;
+            isSelectable = false;
+        }
+
+        return GestureDetector(
+          onTap: isSelectable ? () => _toggleSeat(seatNumber) : null,
+          child: Container(
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  isSelected ? Border.all(color: Colors.white, width: 2) : null,
+            ),
+            child: Center(
+              child: Text(
+                seatNumber,
+                style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPassengerNamesInput() {
+    return Container(
+      padding: EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Passenger Names (Optional)',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            'Passenger Names:',
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
-          SizedBox(height: 12),
-          ...List.generate(_selectedSeats.length, (index) {
+          SizedBox(height: 8),
+          ...List.generate(_passengerCount, (index) {
             return Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: TextFormField(
-                controller: _nameControllers[index],
+              padding: EdgeInsets.only(bottom: 8),
+              child: TextField(
+                controller:
+                    index < _nameControllers.length
+                        ? _nameControllers[index]
+                        : null,
                 decoration: InputDecoration(
-                  labelText:
-                      'Seat ${_selectedSeats[index]} - Passenger ${index + 1}',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  prefixIcon: Icon(Icons.person_outline),
+                  labelText: 'Passenger ${index + 1}',
+                  border: OutlineInputBorder(),
+                  // dense: true,
                 ),
               ),
             );
@@ -640,50 +429,44 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
     );
   }
 
-  Widget _buildBottomActions() {
-    return Container(
-      padding: EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey[200]!)),
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${_selectedSeats.length} seat${_selectedSeats.length != 1 ? 's' : ''} selected',
-                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  ),
-                  if (_selectedSeats.isNotEmpty)
-                    Text(
-                      'Seats: ${_selectedSeats.join(", ")}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            SizedBox(width: 16),
-            ElevatedButton(
-              onPressed: _selectedSeats.isNotEmpty ? _confirmSelection : null,
-              child: Text('Confirm Seats'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryColor,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
-            ),
-          ],
-        ),
-      ),
+  void _toggleSeat(String seatNumber) {
+    setState(() {
+      if (_selectedSeats.contains(seatNumber)) {
+        _selectedSeats.remove(seatNumber);
+      } else if (_selectedSeats.length < _passengerCount) {
+        _selectedSeats.add(seatNumber);
+      }
+    });
+  }
+
+  bool _canConfirm() {
+    if (_autoAssignMode) {
+      return _passengerCount > 0;
+    }
+    return _selectedSeats.length == _passengerCount;
+  }
+
+  void _confirmSelection() {
+    final names =
+        _nameControllers
+            .map((c) => c.text.trim())
+            .where((n) => n.isNotEmpty)
+            .toList();
+
+    widget.onSeatsSelected(
+      _autoAssignMode ? [] : _selectedSeats,
+      _passengerCount,
+      names,
     );
+
+    Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _nameControllers) {
+      controller.dispose();
+    }
+    super.dispose();
   }
 }

@@ -107,8 +107,8 @@ class BookingDataSourceImpl implements BookingDataSource {
 
         return allBookings;
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to get bookings',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to get bookings',
         );
       }
     } catch (e) {
@@ -125,8 +125,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       if (response.statusCode == 200) {
         return BookingModel.fromJson(response.data['data']);
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to get booking details',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to get booking details',
         );
       }
     } catch (e) {
@@ -170,8 +170,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       if (response.statusCode == 201) {
         return BookingModel.fromJson(response.data['data']);
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to create booking',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to create booking',
         );
       }
     } catch (e) {
@@ -196,8 +196,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       );
 
       if (response.statusCode != 200) {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to cancel booking',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to cancel booking',
         );
       }
     } catch (e) {
@@ -224,8 +224,9 @@ class BookingDataSourceImpl implements BookingDataSource {
       if (response.statusCode == 201) {
         return response.data['data'];
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to create multiple bookings',
+        throw ServerException(
+          message:
+              response.data['message'] ?? 'Failed to create multiple bookings',
         );
       }
     } catch (e) {
@@ -243,10 +244,12 @@ class BookingDataSourceImpl implements BookingDataSource {
   }) async {
     try {
       final Map<String, dynamic> queryParams = {};
-      if (pickupStopId != null)
+      if (pickupStopId != null) {
         queryParams['pickup_stop_id'] = pickupStopId.toString();
-      if (dropoffStopId != null)
+      }
+      if (dropoffStopId != null) {
         queryParams['dropoff_stop_id'] = dropoffStopId.toString();
+      }
       if (travelDate != null) queryParams['travel_date'] = travelDate;
 
       final response = await dioClient.get(
@@ -254,16 +257,47 @@ class BookingDataSourceImpl implements BookingDataSource {
         queryParameters: queryParams,
       );
 
-      if (response.statusCode == 200) {
-        return response.data['data'];
+      if (response['status'] == "success" && response['data'] != null) {
+        final seatData = response['data'];
+
+        return {
+          'trip_id': seatData['trip_id'],
+          'vehicle_info': seatData['vehicle_info'],
+          'seat_summary': seatData['seat_summary'],
+          'available_seats': seatData['available_seats'] ?? [],
+          'occupied_seats': seatData['occupied_seats'] ?? [],
+          'unavailable_seats': [],
+        };
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to get available seats',
+        throw ServerException(
+          message: response['message'] ?? 'Failed to get available seats',
         );
       }
     } catch (e) {
-      if (e is ServerException) rethrow;
-      throw ServerException(message: 'Failed to get available seats: $e');
+      if (e is ServerException) {
+        rethrow;
+      }
+
+      // Handle network/connection errors
+      if (e.toString().contains('SocketException') ||
+          e.toString().contains('Connection') ||
+          e.toString().contains('Failed host lookup')) {
+        throw ServerException(
+          message:
+              'Network connection error. Please check your internet connection.',
+        );
+      }
+
+      // Handle DioException
+      if (e.toString().contains('DioException')) {
+        throw ServerException(
+          message: 'Network request failed. Please try again.',
+        );
+      }
+
+      throw ServerException(
+        message: 'Failed to load seat information: ${e.toString()}',
+      );
     }
   }
 
@@ -286,8 +320,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       final response = await dioClient.post('/seats/reserve', data: data);
 
       if (response.statusCode != 200) {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to reserve seats',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to reserve seats',
         );
       }
     } catch (e) {
@@ -304,8 +338,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       final response = await dioClient.post('/seats/auto-assign', data: data);
 
       if (response.statusCode != 200) {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to auto-assign seats',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to auto-assign seats',
         );
       }
     } catch (e) {
@@ -340,8 +374,8 @@ class BookingDataSourceImpl implements BookingDataSource {
         final assignedSeats = response.data['data']['assigned_seats'] as List;
         return assignedSeats.cast<String>();
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to auto-assign seats',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to auto-assign seats',
         );
       }
     } catch (e) {
@@ -356,8 +390,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       final response = await dioClient.put('/seats/$bookingSeatId/release');
 
       if (response.statusCode != 200) {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to release seat',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to release seat',
         );
       }
     } catch (e) {
@@ -372,8 +406,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       final response = await dioClient.put('/seats/$bookingSeatId/board');
 
       if (response.statusCode != 200) {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to board passenger',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to board passenger',
         );
       }
     } catch (e) {
@@ -401,8 +435,8 @@ class BookingDataSourceImpl implements BookingDataSource {
       if (response.statusCode == 200) {
         return response.data['data'];
       } else {
-        throw ServerException(message: 
-          response.data['message'] ?? 'Failed to get vehicle seat map',
+        throw ServerException(
+          message: response.data['message'] ?? 'Failed to get vehicle seat map',
         );
       }
     } catch (e) {
