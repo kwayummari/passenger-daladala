@@ -15,6 +15,7 @@ class AppConstants {
   static const String stopsEndpoint = '/stops';
   static const String tripsEndpoint = '/trips';
   static const String bookingsEndpoint = '/bookings';
+  static const String seatsEndpoint = '/seats';
   static const String paymentsEndpoint = '/payments';
   static const String reviewsEndpoint = '/reviews';
   

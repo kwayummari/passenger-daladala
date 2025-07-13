@@ -92,44 +92,43 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
           print('✅ DEBUG: Successfully parsed ${trips.length} trips');
 
           // Filter trips by selected date range
-          final filteredTrips =
-              trips.where((trip) {
-                final tripDate = DateTime(
-                  trip.startTime.year,
-                  trip.startTime.month,
-                  trip.startTime.day,
-                );
+          final filteredTrips = trips.where((trip) {
+            final tripDate = DateTime(
+              trip.startTime.year,
+              trip.startTime.month,
+              trip.startTime.day,
+            );
 
-                bool dateMatch = false;
+            bool dateMatch = false;
 
-                if (_selectedDateRange == 'single') {
-                  final selectedDate = DateTime(
-                    _selectedDate.year,
-                    _selectedDate.month,
-                    _selectedDate.day,
-                  );
-                  dateMatch = tripDate.isAtSameMomentAs(selectedDate);
-                } else {
-                  // Date range filtering
-                  final startDate = DateTime(
-                    _selectedDate.year,
-                    _selectedDate.month,
-                    _selectedDate.day,
-                  );
-                  final endDate = DateTime(
-                    _endDate!.year,
-                    _endDate!.month,
-                    _endDate!.day,
-                  );
-                  dateMatch =
-                      tripDate.isAfter(startDate.subtract(Duration(days: 1))) &&
+            if (_selectedDateRange == 'single') {
+              final selectedDate = DateTime(
+                _selectedDate.year,
+                _selectedDate.month,
+                _selectedDate.day,
+              );
+              dateMatch = tripDate.isAtSameMomentAs(selectedDate);
+            } else {
+              // Date range filtering
+              final startDate = DateTime(
+                _selectedDate.year,
+                _selectedDate.month,
+                _selectedDate.day,
+              );
+              final endDate = DateTime(
+                _endDate!.year,
+                _endDate!.month,
+                _endDate!.day,
+              );
+              dateMatch =
+                  tripDate.isAfter(startDate.subtract(Duration(days: 1))) &&
                       tripDate.isBefore(endDate.add(Duration(days: 1)));
-                }
+            }
 
-                return dateMatch &&
-                    trip.routeId == widget.routeId &&
-                    (trip.status == 'scheduled' || trip.status == 'active');
-              }).toList();
+            return dateMatch &&
+                trip.routeId == widget.routeId &&
+                (trip.status == 'scheduled' || trip.status == 'active');
+          }).toList();
 
           // Sort by start time
           filteredTrips.sort((a, b) => a.startTime.compareTo(b.startTime));
@@ -174,6 +173,7 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
     double totalFare = 0.0;
     final baseFare = _fareAmount ?? 2000.0;
 
+    // Calculate fare for selected trips
     for (final trip in _trips) {
       final passengerCount = _passengerCounts[trip.id] ?? 0;
       if (passengerCount > 0) {
@@ -181,7 +181,48 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
       }
     }
 
+    // Multiply by number of days for date range bookings
+    if (_selectedDateRange != 'single') {
+      final totalDays = _calculateTotalDays();
+      totalFare *= totalDays;
+    }
+
     return totalFare;
+  }
+
+  int _calculateTotalDays() {
+    switch (_selectedDateRange) {
+      case 'single':
+        return 1;
+      case 'week':
+        return 7;
+      case 'month':
+        return 30;
+      case '3months':
+        return 90;
+      default:
+        return 1;
+    }
+  }
+
+  List<Map<String, dynamic>> _buildSelectedTripsData() {
+    List<Map<String, dynamic>> selectedTripsData = [];
+
+    for (final trip in _trips) {
+      final passengerCount = _passengerCounts[trip.id] ?? 0;
+      if (passengerCount > 0) {
+        selectedTripsData.add({
+          'tripId': trip.id,
+          'passengerCount': passengerCount,
+          'selectedSeats': _selectedSeats[trip.id] ?? [],
+          'fare': _fareAmount ?? 2000.0,
+          'startTime': trip.startTime,
+          'vehiclePlate': trip.vehiclePlate ?? 'Unknown',
+        });
+      }
+    }
+
+    return selectedTripsData;
   }
 
   // Get total selected passengers across all trips
@@ -235,23 +276,27 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
   }
 
   void _showSeatSelection(Trip trip) {
+    // Check if total passengers across all trips would exceed 10
+    final currentTotalPassengers = _getTotalPassengers();
+    final currentTripPassengers = _passengerCounts[trip.id] ?? 0;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder:
-          (context) => SeatSelectionSheet(
-            trip: trip,
-            selectedSeats: _selectedSeats[trip.id] ?? [],
-            onSeatsSelected: (seats, passengerCount) {
-              setState(() {
-                _selectedSeats[trip.id] = seats;
-                _passengerCounts[trip.id] = passengerCount;
-              });
-            },
-          ),
+      builder: (context) => SeatSelectionSheet(
+        trip: trip,
+        selectedSeats: _selectedSeats[trip.id] ?? [],
+        maxPassengers: 10 - (currentTotalPassengers - currentTripPassengers),
+        onSeatsSelected: (seats, passengerCount) {
+          setState(() {
+            _selectedSeats[trip.id] = seats;
+            _passengerCounts[trip.id] = passengerCount;
+          });
+        },
+      ),
     );
   }
 
@@ -265,34 +310,49 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
       return;
     }
 
-    // For single trip, navigate to existing booking confirmation
-    if (_selectedDateRange == 'single' &&
-        _trips.length == 1 &&
-        _passengerCounts.isNotEmpty) {
-      final trip = _trips.first;
-      final passengerCount = _passengerCounts[trip.id] ?? 1;
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder:
-              (context) => BookingConfirmationPage(
-                tripId: trip.id,
-                routeName: widget.routeName,
-                from: widget.from,
-                to: widget.to,
-                startTime: trip.startTime,
-                fare: (_fareAmount ?? 2000.0) * passengerCount,
-                vehiclePlate: trip.vehiclePlate ?? 'Unknown',
-                pickupStopId: widget.pickupStopId,
-                dropoffStopId: widget.dropoffStopId,
-              ),
+    // Validate maximum passengers (10+ rule)
+    if (_getTotalPassengers() > 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Maximum 10 passengers allowed across all trips'),
+          backgroundColor: Colors.red,
         ),
       );
-    } else {
-      // For multiple trips, show summary
-      _showBookingSummary();
+      return;
     }
+
+    final selectedTripsData = _buildSelectedTripsData();
+
+    // Navigate to enhanced BookingConfirmationPage
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BookingConfirmationPage(
+          // Single trip data (for backward compatibility)
+          tripId: selectedTripsData.isNotEmpty
+              ? selectedTripsData.first['tripId']
+              : null,
+          routeName: widget.routeName,
+          from: widget.from,
+          to: widget.to,
+          startTime: selectedTripsData.isNotEmpty
+              ? selectedTripsData.first['startTime']
+              : DateTime.now(),
+          fare: _fareAmount ?? 2000.0,
+          vehiclePlate: selectedTripsData.isNotEmpty
+              ? selectedTripsData.first['vehiclePlate']
+              : 'Unknown',
+          pickupStopId: widget.pickupStopId,
+          dropoffStopId: widget.dropoffStopId,
+
+          // Multiple trip data (enhanced features)
+          selectedTrips: selectedTripsData.isNotEmpty ? selectedTripsData : null,
+          dateRange: _selectedDateRange,
+          endDate: _endDate,
+          totalDays: _calculateTotalDays(),
+        ),
+      ),
+    );
   }
 
   void _showBookingSummary() {
@@ -302,19 +362,18 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder:
-          (context) => BookingSummarySheet(
-            trips: _trips,
-            passengerCounts: _passengerCounts,
-            selectedSeats: _selectedSeats,
-            farePerTrip: _fareAmount ?? 2000.0,
-            totalFare: _calculateTotalFare(),
-            routeName: widget.routeName,
-            from: widget.from,
-            to: widget.to,
-            pickupStopId: widget.pickupStopId,
-            dropoffStopId: widget.dropoffStopId,
-          ),
+      builder: (context) => BookingSummarySheet(
+        trips: _trips,
+        passengerCounts: _passengerCounts,
+        selectedSeats: _selectedSeats,
+        farePerTrip: _fareAmount ?? 2000.0,
+        totalFare: _calculateTotalFare(),
+        routeName: widget.routeName,
+        from: widget.from,
+        to: widget.to,
+        pickupStopId: widget.pickupStopId,
+        dropoffStopId: widget.dropoffStopId,
+      ),
     );
   }
 
@@ -383,10 +442,9 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 
   Widget _buildTripCard(Trip trip) {
     final startTime = DateFormat('HH:mm').format(trip.startTime);
-    final endTime =
-        trip.endTime != null
-            ? DateFormat('HH:mm').format(trip.endTime!)
-            : 'TBD';
+    final endTime = trip.endTime != null
+        ? DateFormat('HH:mm').format(trip.endTime!)
+        : 'TBD';
     final tripDate = DateFormat('MMM dd').format(trip.startTime);
     final passengerCount = _passengerCounts[trip.id] ?? 0;
     final selectedSeats = _selectedSeats[trip.id] ?? [];
@@ -428,17 +486,15 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color:
-                        trip.status == 'active'
-                            ? Colors.green.withOpacity(0.1)
-                            : Colors.blue.withOpacity(0.1),
+                    color: trip.status == 'active'
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.blue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     trip.status.toUpperCase(),
                     style: TextStyle(
-                      color:
-                          trip.status == 'active' ? Colors.green : Colors.blue,
+                      color: trip.status == 'active' ? Colors.green : Colors.blue,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -507,10 +563,9 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                         '${(trip.availableSeats ?? 30) - passengerCount} seats',
                         style: TextStyle(
                           fontWeight: FontWeight.w500,
-                          color:
-                              (trip.availableSeats ?? 30) > 5
-                                  ? Colors.green
-                                  : Colors.orange,
+                          color: (trip.availableSeats ?? 30) > 5
+                              ? Colors.green
+                              : Colors.orange,
                         ),
                       ),
                     ],
@@ -604,6 +659,108 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnhancedBottomBar() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Date range info (if not single day)
+            if (_selectedDateRange != 'single') ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.event_repeat,
+                      size: 16,
+                      color: AppTheme.primaryColor,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Booking for ${_calculateTotalDays()} days',
+                      style: TextStyle(
+                        color: AppTheme.primaryColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // Main booking info
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Total: ${_getTotalPassengers()} passenger(s)',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                      ),
+                      if (_selectedDateRange != 'single')
+                        Text(
+                          '${_buildSelectedTripsData().length} trips × ${_calculateTotalDays()} days',
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      Text(
+                        '${_calculateTotalFare().toStringAsFixed(0)} TZS',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _proceedToBooking,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Book Now',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -774,37 +931,36 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 
           // Content area
           Expanded(
-            child:
-                _isLoading
-                    ? const Center(child: LoadingIndicator())
-                    : _error != null
+            child: _isLoading
+                ? const Center(child: LoadingIndicator())
+                : _error != null
                     ? ErrorView(message: _error!, onRetry: _loadData)
                     : _trips.isEmpty
-                    ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.directions_bus_outlined,
-                            size: 64,
-                            color: Colors.grey[400],
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No trips available',
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Try selecting a different date or period',
-                            style: TextStyle(color: Colors.grey[500]),
-                          ),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.directions_bus_outlined,
+                                  size: 64,
+                                  color: Colors.grey[400],
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No trips available',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Try selecting a different date or period',
+                                  style: TextStyle(color: Colors.grey[500]),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
                             onPressed: _selectDate,
                             child: const Text('Select Different Date'),
                           ),
@@ -825,73 +981,9 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
         ],
       ),
 
-      // Bottom bar with total and book button
+      // Bottom bar with enhanced features
       bottomNavigationBar:
-          _getTotalPassengers() > 0
-              ? Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, -5),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Total: ${_getTotalPassengers()} passenger(s)',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 14,
-                              ),
-                            ),
-                            Text(
-                              '${_calculateTotalFare().toStringAsFixed(0)} TZS',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      ElevatedButton(
-                        onPressed: _proceedToBooking,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 16,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: const Text(
-                          'Book Now',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-              : null,
+          _getTotalPassengers() > 0 ? _buildEnhancedBottomBar() : null,
     );
   }
 }
@@ -900,12 +992,14 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 class SeatSelectionSheet extends StatefulWidget {
   final Trip trip;
   final List<String> selectedSeats;
+  final int maxPassengers;
   final Function(List<String>, int) onSeatsSelected;
 
   const SeatSelectionSheet({
     super.key,
     required this.trip,
     required this.selectedSeats,
+    this.maxPassengers = 10,
     required this.onSeatsSelected,
   });
 
@@ -924,11 +1018,28 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
     _passengerCount = _selectedSeats.length > 0 ? _selectedSeats.length : 1;
   }
 
+  Widget _buildLegendItem(Color color, String label) {
+    return Row(
+      children: [
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final capacity = widget.trip.availableSeats ?? 30;
     final seatsPerRow = 4;
-    final rows = (capacity / seatsPerRow).ceil();
+    final maxAllowedPassengers = widget.maxPassengers.clamp(1, 10);
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
@@ -936,16 +1047,30 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header with validation info
           Row(
             children: [
               Expanded(
-                child: Text(
-                  'Select Seats - Trip #${widget.trip.id}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Select Seats - Trip #${widget.trip.id}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (maxAllowedPassengers < 10)
+                      Text(
+                        'Max ${maxAllowedPassengers} passengers available',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange[700],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               IconButton(
@@ -957,7 +1082,7 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
 
           const SizedBox(height: 16),
 
-          // Passenger count selector
+          // Passenger count selector with validation
           Row(
             children: [
               Text(
@@ -990,15 +1115,26 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
               ),
               IconButton(
                 onPressed:
-                    _passengerCount < 10
+                    _passengerCount < maxAllowedPassengers
                         ? () {
                           setState(() {
                             _passengerCount++;
                           });
                         }
                         : null,
-                icon: const Icon(Icons.add_circle_outline),
+                icon: Icon(
+                  Icons.add_circle_outline,
+                  color:
+                      _passengerCount < maxAllowedPassengers
+                          ? null
+                          : Colors.grey,
+                ),
               ),
+              if (maxAllowedPassengers < 10)
+                Text(
+                  '(${maxAllowedPassengers} max)',
+                  style: TextStyle(fontSize: 12, color: Colors.orange[700]),
+                ),
             ],
           ),
 
@@ -1042,8 +1178,7 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
                       final seatNumber =
                           'S${(index + 1).toString().padLeft(2, '0')}';
                       final isSelected = _selectedSeats.contains(seatNumber);
-                      final isOccupied =
-                          false; // You can add real occupied seat logic here
+                      final isOccupied = false;
 
                       return GestureDetector(
                         onTap: () {
@@ -1132,7 +1267,7 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
 
           const SizedBox(height: 16),
 
-          // Confirm button
+          // Enhanced confirm button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -1152,7 +1287,9 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
                 ),
               ),
               child: Text(
-                'Confirm Selection (${_selectedSeats.length}/$_passengerCount)',
+                _selectedSeats.length == _passengerCount
+                    ? 'Confirm Selection (${_selectedSeats.length}/$_passengerCount)'
+                    : 'Select ${_passengerCount - _selectedSeats.length} more seat(s)',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
@@ -1162,23 +1299,6 @@ class _SeatSelectionSheetState extends State<SeatSelectionSheet> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildLegendItem(Color color, String label) {
-    return Row(
-      children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
     );
   }
 }
@@ -1446,7 +1566,6 @@ class BookingSummarySheet extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: () {
-                // For now, just close and show success message
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -1456,8 +1575,6 @@ class BookingSummarySheet extends StatelessWidget {
                     backgroundColor: Colors.green,
                   ),
                 );
-
-                // Navigate back to previous screens
                 Navigator.of(context).popUntil((route) => route.isFirst);
               },
               style: ElevatedButton.styleFrom(

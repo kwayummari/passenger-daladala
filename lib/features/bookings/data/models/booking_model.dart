@@ -38,6 +38,7 @@ class BookingModel extends Booking {
          payment: payment,
          user: user,
        );
+       
 
   factory BookingModel.fromJson(Map<String, dynamic> json) {
     try {

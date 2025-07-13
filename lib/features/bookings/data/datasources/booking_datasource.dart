@@ -13,6 +13,13 @@ abstract class BookingDataSource {
     required int passengerCount,
   });
   Future<void> cancelBooking(int bookingId);
+
+  // NEW: Multiple booking and seat management methods
+  Future<Map<String, dynamic>> createMultipleBookings(
+    List<Map<String, dynamic>> bookingsData,
+  );
+  Future<void> reserveSeats(int bookingId, List<String> seatNumbers);
+  Future<void> autoAssignSeats(int bookingId);
 }
 
 class BookingDataSourceImpl implements BookingDataSource {
@@ -104,14 +111,78 @@ class BookingDataSourceImpl implements BookingDataSource {
       rethrow;
     }
   }
+
+  // NEW: Create multiple bookings implementation
+  @override
+  Future<Map<String, dynamic>> createMultipleBookings(
+    List<Map<String, dynamic>> bookingsData,
+  ) async {
+    try {
+      final response = await dioClient.post(
+        '${AppConstants.bookingsEndpoint}/multiple',
+        data: {'bookings_data': bookingsData},
+      );
+
+      if (response['status'] == 'success') {
+        return response['data'];
+      } else {
+        throw ServerException(
+          message: response['message'] ?? 'Failed to create multiple bookings',
+        );
+      }
+    } catch (e) {
+      if (e is ServerException) rethrow;
+      throw ServerException(message: 'Network error: ${e.toString()}');
+    }
+  }
+
+  // NEW: Reserve seats implementation
+  @override
+  Future<void> reserveSeats(int bookingId, List<String> seatNumbers) async {
+    try {
+      final response = await dioClient.post(
+        '${AppConstants.seatsEndpoint}/reserve',
+        data: {'booking_id': bookingId, 'seat_numbers': seatNumbers},
+      );
+
+      if (response['status'] != 'success') {
+        throw ServerException(
+          message: response['message'] ?? 'Failed to reserve seats',
+        );
+      }
+    } catch (e) {
+      if (e is ServerException) rethrow;
+      throw ServerException(message: 'Network error: ${e.toString()}');
+    }
+  }
+
+  // NEW: Auto-assign seats implementation
+  @override
+  Future<void> autoAssignSeats(int bookingId) async {
+    try {
+      final response = await dioClient.post(
+        '${AppConstants.seatsEndpoint}/auto-assign',
+        data: {'booking_id': bookingId},
+      );
+
+      if (response['status'] != 'success') {
+        throw ServerException(
+          message: response['message'] ?? 'Failed to auto-assign seats',
+        );
+      }
+    } catch (e) {
+      if (e is ServerException) rethrow;
+      throw ServerException(message: 'Network error: ${e.toString()}');
+    }
+  }
 }
 
-// Mock implementation for debugging
+// Enhanced Mock implementation for debugging
 class MockBookingDataSource implements BookingDataSource {
   @override
   Future<List<BookingModel>> getUserBookings({String? status}) async {
     await Future.delayed(const Duration(seconds: 1)); // Simulate API delay
-    
+
     // Return mock data
     return [
       BookingModel(
@@ -148,7 +219,7 @@ class MockBookingDataSource implements BookingDataSource {
   @override
   Future<BookingModel> getBookingDetails(int bookingId) async {
     await Future.delayed(const Duration(seconds: 1)); // Simulate API delay
-    
+
     return BookingModel(
       id: bookingId,
       userId: 2,
@@ -173,7 +244,7 @@ class MockBookingDataSource implements BookingDataSource {
     required int passengerCount,
   }) async {
     await Future.delayed(const Duration(seconds: 1)); // Simulate API delay
-    
+
     return BookingModel(
       id: 3, // New booking ID
       userId: 2,
@@ -193,9 +264,75 @@ class MockBookingDataSource implements BookingDataSource {
   @override
   Future<void> cancelBooking(int bookingId) async {
     await Future.delayed(const Duration(seconds: 1)); // Simulate API delay
-    
+
     // In a real implementation, we would make an API call to cancel the booking
     // For this mock, we simply return without error
+    return;
+  }
+
+  // NEW: Mock implementation for multiple bookings
+  @override
+  Future<Map<String, dynamic>> createMultipleBookings(
+    List<Map<String, dynamic>> bookingsData,
+  ) async {
+    await Future.delayed(const Duration(seconds: 2)); // Simulate API delay
+
+    // Mock response data
+    final mockBookings =
+        bookingsData.asMap().entries.map((entry) {
+          final index = entry.key;
+          final bookingData = entry.value;
+
+          return {
+            'booking_id': 100 + index,
+            'trip_id': bookingData['trip_id'],
+            'fare_amount': 1500.0 * (bookingData['passenger_count'] ?? 1),
+            'passenger_count': bookingData['passenger_count'] ?? 1,
+            'status': 'confirmed',
+          };
+        }).toList();
+
+    final totalFare = mockBookings.fold<double>(
+      0.0,
+      (sum, booking) => sum + (booking['fare_amount'] as double),
+    );
+
+    return {
+      'bookings': mockBookings,
+      'total_bookings': mockBookings.length,
+      'total_fare': totalFare,
+      'payment_required': true,
+    };
+  }
+
+  // NEW: Mock implementation for seat reservation
+  @override
+  Future<void> reserveSeats(int bookingId, List<String> seatNumbers) async {
+    await Future.delayed(
+      const Duration(milliseconds: 800),
+    ); // Simulate API delay
+
+    // Mock validation
+    if (seatNumbers.isEmpty) {
+      throw ServerException(message: 'No seats selected');
+    }
+
+    if (seatNumbers.length > 10) {
+      throw ServerException(message: 'Cannot reserve more than 10 seats');
+    }
+
+    // Simulate successful reservation
+    return;
+  }
+
+  // NEW: Mock implementation for auto-assign seats
+  @override
+  Future<void> autoAssignSeats(int bookingId) async {
+    await Future.delayed(
+      const Duration(milliseconds: 600),
+    ); // Simulate API delay
+
+    // Simulate successful auto-assignment
     return;
   }
 }
