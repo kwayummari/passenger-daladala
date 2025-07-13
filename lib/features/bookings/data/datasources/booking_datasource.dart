@@ -1,7 +1,4 @@
 // lib/features/bookings/data/datasources/booking_datasource.dart - FIXED VERSION
-
-import 'package:daladala_smart_app/features/bookings/domain/usecases/create_multiple_bookings_usecase.dart';
-
 import '../../../../core/error/exceptions.dart';
 import '../../../../core/network/dio_client.dart';
 import '../models/multiple_bookings_response.dart';
@@ -80,30 +77,41 @@ class BookingDataSourceImpl implements BookingDataSource {
         queryParameters: queryParams,
       );
 
-      if (response.statusCode == 200) {
-        final data = response.data['data'];
+      // ✅ FIXED: Use the working statusCode check
+      if (response['statusCode'] == 200) {
+        final data = response['data'];
 
-        // Handle both single and multi-day bookings
+        // Handle the updated backend response format
         final List<BookingModel> allBookings = [];
 
-        // Add single bookings
-        if (data['single_bookings'] != null) {
-          final singleBookings =
-              (data['single_bookings'] as List)
+        // ✅ Handle the new backend format (single bookings array)
+        if (data['bookings'] != null) {
+          final bookings =
+              (data['bookings'] as List)
                   .map((json) => BookingModel.fromJson(json))
                   .toList();
-          allBookings.addAll(singleBookings);
-        }
+          allBookings.addAll(bookings);
+        } else {
+          // ✅ Fallback: Handle old format if still present
+          // Add single bookings
+          if (data['single_bookings'] != null) {
+            final singleBookings =
+                (data['single_bookings'] as List)
+                    .map((json) => BookingModel.fromJson(json))
+                    .toList();
+            allBookings.addAll(singleBookings);
+          }
 
-        // Add multi-day bookings (flattened)
-        if (data['multi_day_bookings'] != null) {
-          for (final group in data['multi_day_bookings']) {
-            if (group['bookings'] != null) {
-              final groupBookings =
-                  (group['bookings'] as List)
-                      .map((json) => BookingModel.fromJson(json))
-                      .toList();
-              allBookings.addAll(groupBookings);
+          // Add multi-day bookings (flattened)
+          if (data['multi_day_bookings'] != null) {
+            for (final group in data['multi_day_bookings']) {
+              if (group['bookings'] != null) {
+                final groupBookings =
+                    (group['bookings'] as List)
+                        .map((json) => BookingModel.fromJson(json))
+                        .toList();
+                allBookings.addAll(groupBookings);
+              }
             }
           }
         }
@@ -111,10 +119,11 @@ class BookingDataSourceImpl implements BookingDataSource {
         return allBookings;
       } else {
         throw ServerException(
-          message: response.data['message'] ?? 'Failed to get bookings',
+          message: response['message'] ?? 'Failed to get bookings',
         );
       }
     } catch (e) {
+      print('❌ getUserBookings error: $e');
       if (e is ServerException) rethrow;
       throw ServerException(message: 'Failed to get user bookings: $e');
     }
@@ -125,8 +134,8 @@ class BookingDataSourceImpl implements BookingDataSource {
     try {
       final response = await dioClient.get('/bookings/$bookingId');
 
-      if (response.statusCode == 200) {
-        return BookingModel.fromJson(response.data['data']);
+      if (response['statusCode'] == 200) {
+        return BookingModel.fromJson(response['data']);
       } else {
         throw ServerException(
           message: response.data['message'] ?? 'Failed to get booking details',

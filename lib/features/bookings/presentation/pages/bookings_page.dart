@@ -1,4 +1,3 @@
-import 'package:daladala_smart_app/features/home/presentation/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -9,6 +8,7 @@ import '../../../../core/ui/widgets/error_view.dart';
 import '../providers/booking_provider.dart';
 import '../../domain/entities/booking.dart';
 import 'booking_detail_page.dart';
+import '../../../auth/presentation/pages/home_page.dart';
 
 class BookingsPage extends StatefulWidget {
   const BookingsPage({Key? key}) : super(key: key);
@@ -70,11 +70,18 @@ class _BookingsPageState extends State<BookingsPage>
   }
 
   Future<void> _loadBookings() async {
+    print('🔍 Loading bookings with filter: $_currentFilter');
+
     final bookingProvider = Provider.of<BookingProvider>(
       context,
       listen: false,
     );
     await bookingProvider.getUserBookings(status: _currentFilter);
+
+    print('🔍 BookingProvider error: ${bookingProvider.error}');
+    print(
+      '🔍 BookingProvider bookings count: ${bookingProvider.userBookings?.length}',
+    );
   }
 
   @override
@@ -112,108 +119,109 @@ class _BookingsPageState extends State<BookingsPage>
               );
             }
 
-            final bookings = bookingProvider.userBookings;
-
-            if (bookings == null || bookings.isEmpty) {
-              return EmptyState(
-                title: 'No Bookings Found',
-                message:
-                    'You don\'t have any bookings${_currentFilter != null ? ' in this category' : ''}.',
-                lottieAsset: 'assets/animations/empty_list.json',
-                buttonText: 'Book a Trip',
-                onButtonPressed: () {
-                  HomePage.navigateToRoutes();
-                },
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: bookings.length,
-              itemBuilder: (context, index) {
-                final booking = bookings[index];
-                return _BookingItem(
-                  booking: booking,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder:
-                            (_) => BookingDetailPage(bookingId: booking.id),
-                      ),
-                    ).then((_) => _loadBookings());
-                  },
-                );
-              },
+            return TabBarView(
+              controller: _tabController,
+              children: [
+                _buildBookingsList(_getAllBookings(bookingProvider)), // All
+                _buildBookingsList(
+                  _getUpcomingBookings(bookingProvider),
+                ), // Upcoming
+                _buildBookingsList(
+                  _getActiveBookings(bookingProvider),
+                ), // Active
+                _buildBookingsList(_getPastBookings(bookingProvider)), // Past
+              ],
             );
           },
         ),
       ),
     );
   }
-}
 
-class _BookingItem extends StatelessWidget {
-  final Booking booking;
-  final VoidCallback onTap;
+  List<Booking> _getAllBookings(BookingProvider provider) {
+    return provider.userBookings ?? [];
+  }
 
-  const _BookingItem({Key? key, required this.booking, required this.onTap})
-    : super(key: key);
+  List<Booking> _getUpcomingBookings(BookingProvider provider) {
+    final bookings = provider.userBookings ?? [];
+    return bookings.where((booking) {
+      return ['pending', 'confirmed'].contains(booking.status) &&
+          !_isPastBooking(booking);
+    }).toList();
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    // Format date and time
-    final formattedDate = DateFormat('dd MMM yyyy').format(booking.bookingTime);
-    final formattedTime = DateFormat('HH:mm').format(booking.bookingTime);
+  List<Booking> _getActiveBookings(BookingProvider provider) {
+    final bookings = provider.userBookings ?? [];
+    return bookings.where((booking) {
+      return booking.status == 'in_progress';
+    }).toList();
+  }
 
-    // Determine status color
-    Color statusColor;
-    IconData statusIcon;
+  List<Booking> _getPastBookings(BookingProvider provider) {
+    final bookings = provider.userBookings ?? [];
+    return bookings.where((booking) {
+      return ['completed', 'cancelled'].contains(booking.status) ||
+          _isPastBooking(booking);
+    }).toList();
+  }
 
-    switch (booking.status) {
-      case 'pending':
-        statusColor = AppTheme.pendingColor;
-        statusIcon = Icons.hourglass_empty;
-        break;
-      case 'confirmed':
-        statusColor = AppTheme.confirmedColor;
-        statusIcon = Icons.check_circle_outline;
-        break;
-      case 'in_progress':
-        statusColor = AppTheme.inProgressColor;
-        statusIcon = Icons.directions_bus;
-        break;
-      case 'completed':
-        statusColor = AppTheme.completedColor;
-        statusIcon = Icons.check_circle;
-        break;
-      case 'cancelled':
-        statusColor = AppTheme.cancelledColor;
-        statusIcon = Icons.cancel;
-        break;
-      default:
-        statusColor = AppTheme.pendingColor;
-        statusIcon = Icons.hourglass_empty;
+  bool _isPastBooking(Booking booking) {
+    // Check if travel date or booking date has passed
+    final now = DateTime.now();
+    final checkDate =
+        booking.travelDate ?? booking.bookingDate ?? booking.bookingTime;
+
+    // If the date is more than 1 day ago, consider it past
+    return checkDate.isBefore(now.subtract(const Duration(days: 1)));
+  }
+
+  Widget _buildBookingsList(List<Booking> bookings) {
+    if (bookings.isEmpty) {
+      return EmptyState(
+        title: 'No Bookings Found',
+        message:
+            'You don\'t have any bookings${_currentFilter != null ? ' in this category' : ''}.',
+        buttonText: 'Book a Trip',
+        onButtonPressed: () {
+          // Navigate to routes page
+          if (HomePage.homeKey.currentState != null) {
+            HomePage.navigateToTab(1);
+          }
+        },
+      );
     }
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+    return ListView.builder(
+      itemCount: bookings.length,
+      padding: const EdgeInsets.all(16),
+      itemBuilder: (context, index) {
+        final booking = bookings[index];
+        return _buildBookingCard(booking);
+      },
+    );
+  }
+
+  Widget _buildBookingCard(Booking booking) {
+    final statusColor = _getStatusColor(booking.status);
+    final statusIcon = _getStatusIcon(booking.status);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => BookingDetailPage(bookingId: booking.id),
             ),
-          ],
-        ),
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
         child: Column(
           children: [
-            // Top section with status and booking info
+            // Status header
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -225,32 +233,48 @@ class _BookingItem extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(statusIcon, color: statusColor),
+                  Icon(statusIcon, color: statusColor, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Booking #${booking.id}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      booking.status.replaceAll('_', ' ').toUpperCase(),
                       style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
                       ),
                     ),
                   ),
+                  // QR Code indicator
+                  if (booking.hasQrCode) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.qr_code, color: Colors.white, size: 14),
+                          SizedBox(width: 2),
+                          Text(
+                            'QR',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // Status chip
+                  _buildStatusChip(booking.status),
                 ],
               ),
             ),
@@ -259,120 +283,245 @@ class _BookingItem extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Trip info
+                  // Route info
+                  if (booking.routeInfo != null) ...[
+                    Row(
+                      children: [
+                        const Icon(Icons.route, size: 16, color: Colors.grey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            booking.routeInfo!.routeName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // From and To stops
                   Row(
                     children: [
-                      const Icon(
-                        Icons.directions_bus,
-                        size: 16,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'Trip #${booking.tripId}',
-                          style: const TextStyle(color: Colors.grey),
+                        child: _buildStopInfo(
+                          'From',
+                          booking.pickupStop?.stopName ?? 'Unknown',
+                          Icons.my_location,
+                          Colors.green,
                         ),
                       ),
-                      Text(
-                        '$formattedDate at $formattedTime',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(
+                          Icons.arrow_forward,
+                          color: Colors.grey,
+                          size: 20,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildStopInfo(
+                          'To',
+                          booking.dropoffStop?.stopName ?? 'Unknown',
+                          Icons.location_on,
+                          Colors.red,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
 
-                  // From -> To info
+                  const SizedBox(height: 16),
+
+                  // Bottom info row
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
+                      // Passenger count
+                      Row(
                         children: [
                           const Icon(
-                            Icons.circle_outlined,
-                            size: 12,
-                            color: Colors.green,
+                            Icons.person,
+                            size: 16,
+                            color: Colors.grey,
                           ),
-                          Container(
-                            width: 1,
-                            height: 16,
-                            color: Colors.grey.shade300,
-                          ),
-                          const Icon(
-                            Icons.location_on_outlined,
-                            size: 12,
-                            color: Colors.red,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Stop #${booking.pickupStopId}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondaryColor,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Stop #${booking.dropoffStopId}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppTheme.textSecondaryColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            'TZS ${booking.fareAmount.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primaryColor,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
+                          const SizedBox(width: 4),
                           Text(
                             '${booking.passengerCount} passenger${booking.passengerCount > 1 ? 's' : ''}',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.textSecondaryColor,
+                              color: Colors.grey[600],
+                              fontSize: 13,
                             ),
                           ),
                         ],
+                      ),
+                      // Fare amount
+                      Text(
+                        '${booking.totalFare.toStringAsFixed(0)} TZS',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.primaryColor,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Travel date
+                  if (booking.travelDate != null ||
+                      booking.bookingDate != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_today,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          DateFormat('dd MMM yyyy').format(
+                            booking.travelDate ??
+                                booking.bookingDate ??
+                                booking.bookingTime,
+                          ),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (booking.travelDate != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            DateFormat('HH:mm').format(booking.travelDate!),
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+
+                  // Payment status
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        booking.isPaid ? Icons.check_circle : Icons.pending,
+                        size: 16,
+                        color: booking.isPaid ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Payment: ${booking.paymentStatus.replaceAll('_', ' ').toUpperCase()}',
+                        style: TextStyle(
+                          color: booking.isPaid ? Colors.green : Colors.orange,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-
-            // Bottom action button
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: Colors.grey.shade200)),
-              ),
-              child: Text(
-                'View Details',
-                style: TextStyle(
-                  color: AppTheme.primaryColor,
-                  fontWeight: FontWeight.w500,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildStopInfo(
+    String label,
+    String stopName,
+    IconData icon,
+    Color color,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          stopName,
+          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusChip(String status) {
+    final color = _getStatusColor(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        status.replaceAll('_', ' ').toUpperCase(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'confirmed':
+        return Colors.blue;
+      case 'in_progress':
+        return Colors.purple;
+      case 'completed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Icons.schedule;
+      case 'confirmed':
+        return Icons.check_circle_outline;
+      case 'in_progress':
+        return Icons.directions_bus;
+      case 'completed':
+        return Icons.check_circle;
+      case 'cancelled':
+        return Icons.cancel;
+      default:
+        return Icons.info;
+    }
   }
 }

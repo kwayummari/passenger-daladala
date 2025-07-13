@@ -185,8 +185,10 @@ class WalletProvider extends ChangeNotifier {
       // Call the wallet payment API
       final result = await walletDataSource.processWalletPayment(
         bookingId: bookingId,
-        amount: amount, // ✅ Pass amount to datasource
+        amount: amount,
       );
+
+      print("================= amount $amount");
 
       // Assuming processWalletPayment returns a WalletModel on success, null on failure
       // Update local wallet balance
@@ -196,7 +198,7 @@ class WalletProvider extends ChangeNotifier {
       await getWalletBalance();
 
       return true;
-        } catch (e) {
+    } catch (e) {
       print('💥 Wallet payment error: $e');
       _setError('Payment failed: ${e.toString()}');
       return false;

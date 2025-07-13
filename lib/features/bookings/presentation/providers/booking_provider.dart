@@ -72,6 +72,31 @@ class BookingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  List<Booking> get allBookings => _userBookings ?? [];
+  List<Booking> get upcomingBookings =>
+      _userBookings
+          ?.where(
+            (b) =>
+                ['pending', 'confirmed'].contains(b.status) && !_isPastTrip(b),
+          )
+          .toList() ??
+      [];
+  List<Booking> get activeBookings =>
+      _userBookings?.where((b) => b.status == 'in_progress').toList() ?? [];
+  List<Booking> get pastBookings =>
+      _userBookings
+          ?.where(
+            (b) =>
+                ['completed', 'cancelled'].contains(b.status) || _isPastTrip(b),
+          )
+          .toList() ??
+      [];
+
+  bool _isPastTrip(Booking booking) {
+    // Add logic to check if trip time has passed
+    return false; // Implement based on your trip timing logic
+  }
+
   Future<void> getBookingDetails(int bookingId) async {
     _isLoading = true;
     _error = null;
