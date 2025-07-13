@@ -1,5 +1,10 @@
 // lib/features/trips/presentation/pages/trip_selection_page.dart - ENHANCED VERSION
+import 'dart:convert';
+
+import 'package:daladala_smart_app/services/api_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/ui/widgets/loading_indicator.dart';
@@ -115,14 +120,49 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 
   Future<void> _loadFareInfo() async {
     try {
-      // Mock fare calculation - replace with actual API call
-      setState(() {
-        _fareAmount = 2000.0; // Default fare
-      });
+      // Get headers with auth token
+      final headers = await _getHeaders();
+
+      // Updated URL to match the backend route pattern
+      final url =
+          '${ApiService.baseUrl}/routes/${widget.routeId}/fare?start_stop_id=${widget.pickupStopId}&end_stop_id=${widget.dropoffStopId}&fare_type=standard';
+
+      print('🔍 DEBUG: Calling fare API: $url');
+
+      final response = await http.get(Uri.parse(url), headers: headers);
+
+      print('🔍 DEBUG: Fare API response status: ${response.statusCode}');
+      print('🔍 DEBUG: Fare API response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'success') {
+          setState(() {
+            _fareAmount = data['data']['amount'].toDouble();
+          });
+          print('✅ DEBUG: Loaded fare: $_fareAmount');
+        } else {
+          throw Exception(data['message']);
+        }
+      } else {
+        throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      }
     } catch (e) {
       print('⚠️ DEBUG: Failed to load fare info: $e');
-      // Don't set error for fare - use default
+      // Use default fare as fallback
+      setState(() {
+        _fareAmount = 2000.0;
+      });
     }
+  }
+
+  Future<Map<String, String>> _getHeaders() async {
+    const FlutterSecureStorage storage = FlutterSecureStorage();
+    final token = await storage.read(key: 'auth_token');
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'x-access-token': token,
+    };
   }
 
   List<Trip> _filterTripsByDateRange(List<Trip> allTrips) {
@@ -145,12 +185,109 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
   // Calculate total fare for all selected trips
   double _calculateTotalFare() {
     double total = 0.0;
+    final baseFare = _fareAmount ?? 2000.0;
+
+    // Calculate base total from all selected passengers
     _passengerCounts.forEach((tripKey, passengerCount) {
-      total += (_fareAmount ?? 2000.0) * passengerCount;
+      total += baseFare * passengerCount;
     });
-    return total;
+
+    // Apply multiplier based on date range
+    double multiplier = 1.0;
+    int totalDays = _calculateTotalDays();
+
+    switch (_selectedDateRange) {
+      case 'single':
+        multiplier = 1.0;
+        break;
+      case 'week':
+        multiplier = 7.0 * 0.95; // 7 days with 5% discount
+        break;
+      case 'month':
+        multiplier = 30.0 * 0.85; // 30 days with 15% discount
+        break;
+      case '3months':
+        multiplier = 90.0 * 0.75; // 90 days with 25% discount
+        break;
+    }
+
+    // For single day, just return the total
+    if (_selectedDateRange == 'single') {
+      return total;
+    }
+
+    // For multiple days, multiply by the number of days with discount
+    return total * multiplier;
   }
 
+  Map<String, dynamic> _getFareBreakdown() {
+    final baseFare = _fareAmount ?? 2000.0;
+    final totalPassengers = _getTotalPassengers();
+    final dailyFare = baseFare * totalPassengers;
+    final totalDays = _calculateTotalDays();
+
+    double discount = 0.0;
+    switch (_selectedDateRange) {
+      case 'week':
+        discount = 0.05; // 5%
+        break;
+      case 'month':
+        discount = 0.15; // 15%
+        break;
+      case '3months':
+        discount = 0.25; // 25%
+        break;
+    }
+
+    final totalWithoutDiscount = dailyFare * totalDays;
+    final discountAmount = totalWithoutDiscount * discount;
+    final finalTotal = totalWithoutDiscount - discountAmount;
+
+    return {
+      'dailyFare': dailyFare,
+      'totalDays': totalDays,
+      'totalWithoutDiscount': totalWithoutDiscount,
+      'discount': discount,
+      'discountAmount': discountAmount,
+      'finalTotal': _selectedDateRange == 'single' ? dailyFare : finalTotal,
+    };
+  }
+
+  void _updatePassengerCount(String tripKey, int count) {
+    setState(() {
+      if (count > 0) {
+        _passengerCounts[tripKey] = count;
+      } else {
+        _passengerCounts.remove(tripKey);
+        _selectedSeats.remove(tripKey);
+        _passengerNames.remove(tripKey);
+      }
+    });
+  }
+
+  // Add this method to recalculate when date range changes
+  void _onDateRangeChanged(String newRange) {
+    setState(() {
+      _selectedDateRange = newRange;
+      // Update end date based on range
+      switch (newRange) {
+        case 'week':
+          _endDate = _selectedDate.add(Duration(days: 7));
+          break;
+        case 'month':
+          _endDate = _selectedDate.add(Duration(days: 30));
+          break;
+        case '3months':
+          _endDate = _selectedDate.add(Duration(days: 90));
+          break;
+        default:
+          _endDate = null;
+      }
+      _loadTrips(); // Reload trips for new date range
+    });
+  }
+
+  // Build selected trips data for booking
   // Build selected trips data for booking
   List<Map<String, dynamic>> _buildSelectedTripsData() {
     List<Map<String, dynamic>> selectedTripsData = [];
@@ -164,10 +301,15 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
 
       if (tripId == null) continue;
 
-      final trip = _trips.firstWhere(
-        (t) => t.id == tripId,
-        orElse: () => _trips.first,
-      );
+      // FIX: Handle the case where trip is not found properly
+      Trip? trip;
+      try {
+        trip = _trips.firstWhere((t) => t.id == tripId);
+      } catch (e) {
+        // If no trip found, skip this entry or use a default
+        print('⚠️ Trip with ID $tripId not found in _trips list');
+        continue; // Skip this trip
+      }
 
       final passengerCount = _passengerCounts[tripKey] ?? 1;
       final seatNumbers = _selectedSeats[tripKey] ?? [];
@@ -224,7 +366,7 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
       _passengerCounts.clear();
       _passengerNames.clear();
     });
-    _loadTrips();
+    _loadTrips(); // This will reload trips and trigger UI updates
   }
 
   void _updateEndDate() {
@@ -836,9 +978,8 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
   }
 
   Widget _buildBottomBookingBar() {
+    final fareBreakdown = _getFareBreakdown();
     final totalPassengers = _getTotalPassengers();
-    final totalFare = _calculateTotalFare();
-    final selectedTripsCount = _passengerCounts.length;
 
     return Container(
       padding: EdgeInsets.all(16),
@@ -847,65 +988,88 @@ class _TripSelectionPageState extends State<TripSelectionPage> {
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.1),
-            blurRadius: 5,
+            blurRadius: 4,
             offset: Offset(0, -2),
           ),
         ],
       ),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Fare breakdown
+          if (_selectedDateRange != 'single') ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$selectedTripsCount trip${selectedTripsCount != 1 ? 's' : ''} • $totalPassengers passenger${totalPassengers != 1 ? 's' : ''}',
-                      style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                    ),
-                    Text(
-                      'TZS ${totalFare.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Daily fare (${totalPassengers} passenger${totalPassengers != 1 ? 's' : ''}):',
                 ),
-                Row(
-                  children: [
-                    if (selectedTripsCount > 1)
-                      OutlinedButton(
-                        onPressed: _showBookingSummary,
-                        child: Text('Summary'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppTheme.primaryColor,
-                          side: BorderSide(color: AppTheme.primaryColor),
-                        ),
-                      ),
-                    if (selectedTripsCount > 1) SizedBox(width: 8),
-                    ElevatedButton(
-                      onPressed: _proceedToBooking,
-                      child: Text('Book Now'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text('TZS ${fareBreakdown['dailyFare'].toStringAsFixed(0)}'),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('× ${fareBreakdown['totalDays']} days:'),
+                Text(
+                  'TZS ${fareBreakdown['totalWithoutDiscount'].toStringAsFixed(0)}',
                 ),
               ],
             ),
+            if (fareBreakdown['discount'] > 0) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Discount (${(fareBreakdown['discount'] * 100).toStringAsFixed(0)}%):',
+                    style: TextStyle(color: Colors.green),
+                  ),
+                  Text(
+                    '-TZS ${fareBreakdown['discountAmount'].toStringAsFixed(0)}',
+                    style: TextStyle(color: Colors.green),
+                  ),
+                ],
+              ),
+            ],
+            Divider(),
           ],
-        ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Total: TZS ${fareBreakdown['finalTotal'].toStringAsFixed(0)}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primaryColor,
+                    ),
+                  ),
+                  Text(
+                    '$totalPassengers passenger${totalPassengers != 1 ? 's' : ''} • ${_selectedDateRange == 'single' ? '1 day' : '${fareBreakdown['totalDays']} days'}',
+                    style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+              ElevatedButton(
+                onPressed: _proceedToBooking,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: Text(
+                  'Book Now',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
