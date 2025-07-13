@@ -18,13 +18,13 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _phoneController = TextEditingController();
+  final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _rememberMe = false;
 
   @override
   void dispose() {
-    _phoneController.dispose();
+    _identifierController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -37,7 +37,7 @@ class _LoginPageState extends State<LoginPage> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
       final result = await authProvider.login(
-        phone: _phoneController.text,
+        identifier: _identifierController.text,
         password: _passwordController.text,
         rememberMe: _rememberMe,
       );
@@ -103,12 +103,12 @@ class _LoginPageState extends State<LoginPage> {
 
                 // Phone field
                 CustomInput(
-                  label: 'Phone Number',
-                  hint: 'Enter your phone number',
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  prefix: const Icon(Icons.phone),
-                  validator: Validators.validatePhone,
+                  label: 'Email /Phone Number',
+                  hint: 'Enter your phone number or email',
+                  controller: _identifierController,
+                  keyboardType: TextInputType.emailAddress,
+                  prefix: const Icon(Icons.person),
+                  // validator: Validators.validateName(_identifierController),
                 ),
 
                 const SizedBox(height: 16),

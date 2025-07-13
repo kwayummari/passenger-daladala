@@ -50,7 +50,10 @@ class PaymentDataSourceImpl implements PaymentDataSource {
     Map<String, dynamic>? paymentDetails,
   }) async {
     try {
-      final data = {'booking_id': bookingId, 'payment_method': paymentMethod};
+      final data = {
+        'booking_id': bookingId,
+        'payment_method': paymentMethod,
+      };
 
       // Add phone number for mobile money payments
       if (paymentMethod == 'mobile_money' && phoneNumber != null) {
@@ -61,8 +64,10 @@ class PaymentDataSourceImpl implements PaymentDataSource {
         data['transaction_id'] = transactionId;
       }
 
-      if (paymentDetails != null) {
-        data['payment_details'] = paymentDetails;
+      if (paymentDetails != null && paymentDetails.containsKey('amount')) {
+        data['amount'] =
+            paymentDetails['amount']; // Send calculated amount to backend
+        print('📤 Sending calculated amount: ${paymentDetails['amount']}');
       }
 
       print('📤 Sending payment request: $data');
@@ -96,7 +101,6 @@ class PaymentDataSourceImpl implements PaymentDataSource {
 
   Future<int> _getCurrentUserId() async {
     try {
-
       // Method 2: From SharedPreferences (Alternative)
       final prefs = await SharedPreferences.getInstance();
       final userId = prefs.getInt('user_id');

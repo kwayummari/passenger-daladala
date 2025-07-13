@@ -20,11 +20,30 @@ class _RegisterPageState extends State<RegisterPage> {
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _nationalIdController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
   bool _acceptTerms = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+
+  bool _isPasswordVisible = false;
+  bool _isConfirmPasswordVisible = false;
+  bool _agreeToTerms = false;
+  String _selectedRole = 'passenger';
+
+  final List<Map<String, String>> _availableRoles = [
+    {
+      'value': 'passenger',
+      'label': 'Passenger',
+      'description': 'Book and travel in daladalas',
+    },
+    {
+      'value': 'driver',
+      'label': 'Driver',
+      'description': 'Drive daladalas and manage trips',
+    },
+  ];
 
   @override
   void dispose() {
@@ -32,6 +51,7 @@ class _RegisterPageState extends State<RegisterPage> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _nationalIdController.dispose();
     super.dispose();
   }
 
@@ -54,6 +74,8 @@ class _RegisterPageState extends State<RegisterPage> {
         phone: _phoneController.text.trim(),
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        national_id: _nationalIdController.text.trim(),
+        role: _selectedRole,
       );
 
       if (mounted) {
@@ -131,6 +153,44 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
                 const SizedBox(height: 32),
 
+                Text(
+                  'Select Your Role',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]!),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children:
+                        _availableRoles.map((role) {
+                          return RadioListTile<String>(
+                            title: Text(role['label']!),
+                            subtitle: Text(
+                              role['description']!,
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                              ),
+                            ),
+                            value: role['value']!,
+                            groupValue: _selectedRole,
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedRole = value!;
+                              });
+                            },
+                            activeColor: theme.primaryColor,
+                          );
+                        }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
                 // Phone field
                 CustomInput(
                   label: 'Phone Number',
@@ -153,6 +213,24 @@ class _RegisterPageState extends State<RegisterPage> {
                   validator: Validators.validateEmail,
                 ),
 
+                const SizedBox(height: 16),
+
+                CustomInput(
+                  controller: _nationalIdController,
+                  label: 'National ID (NIDA)',
+                  keyboardType: TextInputType.text,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'National ID is required';
+                    }
+                    if (value.length < 10) {
+                      return 'National ID must be at least 10 characters';
+                    }
+                    return null;
+                  },
+                  textInputAction: TextInputAction.next,
+                  prefix: const Icon(Icons.credit_card),
+                ),
                 const SizedBox(height: 16),
 
                 // Password field

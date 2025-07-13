@@ -15,32 +15,32 @@ class AuthRepositoryImpl implements AuthRepository {
   final NetworkInfo networkInfo;
   final SecureStorage secureStorage;
   final LocalStorage localStorage;
-  
+
   AuthRepositoryImpl({
     required this.dataSource,
     required this.networkInfo,
     required this.secureStorage,
     required this.localStorage,
   });
-  
+
   @override
   Future<Either<Failure, User>> login({
-    required String phone,
+    required String identifier,
     required String password,
     required bool rememberMe,
   }) async {
     if (await networkInfo.isConnected) {
       try {
         final userModel = await dataSource.login(
-          phone: phone,
+          identifier: identifier,
           password: password,
         );
-        
+
         // Save auth token
         if (userModel.accessToken != null) {
           await secureStorage.saveAuthToken(userModel.accessToken!);
         }
-        
+
         // Save user data
         if (rememberMe) {
           await localStorage.saveObject(
@@ -48,12 +48,14 @@ class AuthRepositoryImpl implements AuthRepository {
             userModel.toJson(),
           );
         }
-        
+
         return Right(userModel);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
       } on UnauthorizedException catch (e) {
-        return Left(AuthenticationFailure(message: e.message ?? 'Authentication error'));
+        return Left(
+          AuthenticationFailure(message: e.message ?? 'Authentication error'),
+        );
       } catch (e) {
         return Left(ServerFailure(message: e.toString()));
       }
@@ -61,12 +63,14 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(NetworkFailure(message: 'No internet connection'));
     }
   }
-  
+
   @override
   Future<Either<Failure, User>> register({
     required String phone,
     required String email,
     required String password,
+    required String national_id,
+    required String role,
   }) async {
     if (await networkInfo.isConnected) {
       try {
@@ -74,19 +78,21 @@ class AuthRepositoryImpl implements AuthRepository {
           phone: phone,
           email: email,
           password: password,
+          national_id: national_id,
+          role: role,
         );
-        
+
         // Save auth token
         if (userModel.accessToken != null) {
           await secureStorage.saveAuthToken(userModel.accessToken!);
         }
-        
+
         // Save user data
         await localStorage.saveObject(
           AppConstants.keyAuthUser,
           userModel.toJson(),
         );
-        
+
         return Right(userModel);
       } on ServerException catch (e) {
         return Left(ServerFailure(message: e.message ?? 'Server error'));
@@ -99,22 +105,22 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(NetworkFailure(message: 'No internet connection'));
     }
   }
-  
+
   @override
   Future<Either<Failure, void>> logout() async {
     try {
       // Clear auth token
       await secureStorage.deleteAuthToken();
-      
+
       // Clear user data
       await localStorage.removeKey(AppConstants.keyAuthUser);
-      
+
       return const Right(null);
     } catch (e) {
       return Left(ServerFailure(message: e.toString()));
     }
   }
-  
+
   @override
   Future<Either<Failure, User>> checkAuthStatus() async {
     try {
@@ -123,21 +129,21 @@ class AuthRepositoryImpl implements AuthRepository {
       if (token == null || token.isEmpty) {
         return Left(AuthenticationFailure(message: 'No authenticated user'));
       }
-      
+
       // Get user data from local storage
       final userData = await localStorage.getObject(AppConstants.keyAuthUser);
       if (userData == null) {
         return Left(AuthenticationFailure(message: 'User data not found'));
       }
-      
+
       final userModel = UserModel.fromJson(userData);
-      
+
       return Right(userModel);
     } catch (e) {
       return Left(AuthenticationFailure(message: e.toString()));
     }
   }
-  
+
   @override
   Future<Either<Failure, void>> requestPasswordReset({
     required String phone,
@@ -157,7 +163,7 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(NetworkFailure(message: 'No internet connection'));
     }
   }
-  
+
   @override
   Future<Either<Failure, void>> resetPassword({
     required String token,
@@ -178,7 +184,6 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(NetworkFailure(message: 'No internet connection'));
     }
   }
-
 
   @override
   Future<Either<Failure, User>> verifyAccount({

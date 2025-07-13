@@ -72,7 +72,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<Either<Failure, User>> login({
-    required String phone,
+    required String identifier,
     required String password,
     required bool rememberMe,
   }) async {
@@ -80,7 +80,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     final params = LoginParams(
-      phone: phone,
+      identifier: identifier,
       password: password,
       rememberMe: rememberMe,
     );
@@ -106,6 +106,8 @@ class AuthProvider extends ChangeNotifier {
     required String phone,
     required String email,
     required String password,
+    required String national_id,
+    required String role,
   }) async {
     _isLoading = true;
     notifyListeners();
@@ -114,6 +116,8 @@ class AuthProvider extends ChangeNotifier {
       phone: phone,
       email: email,
       password: password,
+      national_id: national_id,
+      role: role,
     );
 
     final result = await registerUseCase(params);
