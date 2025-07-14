@@ -3,6 +3,7 @@ import 'package:daladala_smart_app/features/wallet/presentation/providers/wallet
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'core/di/service_locator.dart';
 import 'core/theme/app_theme.dart';
@@ -27,8 +28,18 @@ void main() async {
   
   // Initialize service locator (dependency injection)
   await setupServiceLocator();
+
+  await requestPermissions();
   
   runApp(const MyApp());
+}
+
+Future<void> requestPermissions() async {
+  await [
+    Permission.sms,
+    Permission.storage,
+    Permission.notification,
+  ].request();
 }
 
 class MyApp extends StatelessWidget {
