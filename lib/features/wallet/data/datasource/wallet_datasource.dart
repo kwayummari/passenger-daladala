@@ -104,7 +104,11 @@ class WalletDataSourceImpl implements WalletDataSource {
       print('Booking ID: $bookingId');
       print('Amount: $amount');
 
-      final data = {'booking_id': bookingId, 'payment_method': 'wallet'};
+      final data = {
+        'booking_id': bookingId,
+        'payment_method': 'wallet',
+        'amount': amount,
+      };
 
       final response = await dioClient.post('/payments', data: data);
 
