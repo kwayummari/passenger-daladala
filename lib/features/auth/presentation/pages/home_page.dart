@@ -93,6 +93,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
+
+    // ✅ ADD: Trigger trips refresh when trips tab is selected
+    if (index == 2) {
+      // Trips tab index
+      print('🎯 HomePage: Trips tab selected, refreshing trips');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final tripProvider = context.read<TripProvider>();
+        tripProvider.getUpcomingTrips();
+      });
+    }
   }
 
   @override
@@ -106,6 +116,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           setState(() {
             _currentIndex = index;
           });
+
+          if (index == 2) {
+            // Trips tab
+            print('🎯 HomePage: PageView switched to trips tab');
+            Future.delayed(Duration(milliseconds: 300), () {
+              if (mounted) {
+                final tripProvider = context.read<TripProvider>();
+                tripProvider.getUpcomingTrips();
+              }
+            });
+          }
         },
         children: [
           // Home Tab

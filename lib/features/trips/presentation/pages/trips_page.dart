@@ -26,20 +26,47 @@ class _TripsPageState extends State<TripsPage>
   bool get wantKeepAlive => true;
 
   @override
+  void initState() {
+    super.initState();
+    print('🎯 TripsPage: initState called');
+
+    // ✅ PRIMARY: Load trips immediately in initState
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        print('🎯 TripsPage: Loading trips from initState');
+        _loadTrips();
+      }
+    });
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    print(
+      '🎯 TripsPage: didChangeDependencies called, _isInitialized: $_isInitialized',
+    );
 
+    // ✅ SECONDARY: Fallback for cases where initState wasn't enough
     if (!_isInitialized) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _loadTrips();
+        if (mounted) {
+          print('🎯 TripsPage: Loading trips from didChangeDependencies');
+          _loadTrips();
+        }
       });
       _isInitialized = true;
     }
   }
 
   Future<void> _loadTrips() async {
+    print('🚀 TripsPage: _loadTrips called');
     final tripProvider = Provider.of<TripProvider>(context, listen: false);
-    await tripProvider.getUpcomingTrips();
+    try {
+      await tripProvider.getUpcomingTrips();
+      print('✅ TripsPage: Trips loaded successfully');
+    } catch (e) {
+      print('❌ TripsPage: Error loading trips: $e');
+    }
   }
 
   Future<void> _refreshTrips() async {
