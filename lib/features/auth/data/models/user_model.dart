@@ -26,7 +26,10 @@ class UserModel extends User {
       phone: json['phone'] ?? '',
       email: json['email'],
       profilePicture: json['profile_picture'],
-      role: json['role'] ?? 'passenger',
+      role:
+          json['role'] is Map
+              ? json['role']['role_name'] ?? 'passenger'
+              : (json['role'] ?? 'passenger'),
       isVerified: json['is_verified'] ?? false,
       createdAt:
           json['created_at'] != null

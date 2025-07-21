@@ -52,6 +52,8 @@ class ProfileDataSourceImpl implements ProfileDataSource {
         data: profileData,
       );
 
+      print('Update Profile Response: ${response.data}');
+
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         return UserModel.fromJson(response.data['data']);
       } else {
@@ -59,7 +61,7 @@ class ProfileDataSourceImpl implements ProfileDataSource {
       }
     } on DioException catch (e) {
       if (e.response?.statusCode == 400) {
-        throw Exception(e.response?.data['message'] ?? 'Invalid data provided');
+        throw Exception(_extractErrorMessage(e.response?.data['message']));
       } else if (e.response?.statusCode == 401) {
         throw Exception('Unauthorized access');
       }
@@ -67,7 +69,27 @@ class ProfileDataSourceImpl implements ProfileDataSource {
         e.response?.data['message'] ?? 'Failed to update profile',
       );
     } catch (e) {
+      print('Error updating profile: $e');
       throw Exception('Network error. Please try again.');
     }
+  }
+
+  String _extractErrorMessage(dynamic message) {
+    if (message is String) return message;
+
+    if (message is Map) {
+      try {
+        final firstKey = message.keys.first;
+        final firstValue = message[firstKey];
+        if (firstValue is List && firstValue.isNotEmpty) {
+          return firstValue.first.toString();
+        }
+        return firstValue.toString();
+      } catch (_) {
+        return message.toString();
+      }
+    }
+
+    return 'Unknown error occurred';
   }
 }
