@@ -213,7 +213,8 @@ class _VerificationPageState extends State<VerificationPage> with CodeAutoFill {
                             text: 'Enter the 6-digit code sent to\n',
                           ),
                           TextSpan(
-                            text: _maskContactInfo(widget.phone),
+                            text:
+                                '${_maskContactInfo(widget.phone)}/${_maskContactInfo(widget.email)}',
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               color: theme.primaryColor,

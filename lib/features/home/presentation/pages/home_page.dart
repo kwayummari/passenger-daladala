@@ -233,7 +233,7 @@ class _HomeContentState extends State<_HomeContent> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Ready, Set, Drive',
+                                      'Jongea kwa Malengo',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.titleLarge?.copyWith(

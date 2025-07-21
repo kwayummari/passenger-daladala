@@ -183,13 +183,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage>
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            title: Row(
-              children: [
-                Icon(Icons.smartphone, color: AppTheme.primaryColor, size: 28),
-                const SizedBox(width: 12),
-                const Text('Complete Payment'),
-              ],
-            ),
+            title: const Text('Complete Payment'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

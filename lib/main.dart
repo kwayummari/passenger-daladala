@@ -39,6 +39,9 @@ Future<void> requestPermissions() async {
     Permission.sms,
     Permission.storage,
     Permission.notification,
+    Permission.locationAlways,
+    Permission.locationWhenInUse,
+    Permission.location,
   ].request();
 }
 
