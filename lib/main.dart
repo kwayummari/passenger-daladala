@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:daladala_smart_app/features/profile/presentation/providers/profile_provider.dart';
 import 'package:daladala_smart_app/features/wallet/presentation/providers/wallet_provider.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +27,8 @@ void main() async {
   
   // Load environment variables
   await dotenv.load(fileName: '.env');
+
+  HttpOverrides.global = MyHttpOverrides();
   
   // Initialize service locator (dependency injection)
   await setupServiceLocator();
@@ -32,6 +36,16 @@ void main() async {
   await requestPermissions();
   
   runApp(const MyApp());
+}
+
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    final client = super.createHttpClient(context);
+    client.badCertificateCallback =
+        (X509Certificate cert, String host, int port) => true;
+    return client;
+  }
 }
 
 Future<void> requestPermissions() async {

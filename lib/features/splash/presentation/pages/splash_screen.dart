@@ -134,7 +134,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Public Transport Made Easy',
+                        'Jongea Kwa Malengo',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: Colors.white.withOpacity(0.8),
                         ),

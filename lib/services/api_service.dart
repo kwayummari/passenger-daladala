@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:daladala_smart_app/core/utils/constants.dart';
+import 'package:daladala_smart_app/services/CustomHttpClient.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 class ApiService {
+  static final client = CustomHttpClient.createUnsafeClient();
   static final String baseUrl =
       dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:3000/api';
 
@@ -27,7 +29,7 @@ class ApiService {
   Future<Map<String, dynamic>> getProfile() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/users/profile'),
         headers: headers,
       );
@@ -45,7 +47,7 @@ class ApiService {
   Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> data) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.put(
+      final response = await client.put(
         Uri.parse('$baseUrl/users/profile'),
         headers: headers,
         body: json.encode(data),
@@ -100,7 +102,7 @@ class ApiService {
         ),
       );
 
-      final response = await request.send();
+      final response = await client.send(request);
 
       if (response.statusCode == 200) {
         final responseBody = await response.stream.bytesToString();
@@ -118,7 +120,7 @@ class ApiService {
   Future<Map<String, dynamic>> getWalletBalance() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/wallet/balance'),
         headers: headers,
       );
@@ -150,7 +152,7 @@ class ApiService {
         '$baseUrl/wallet/transactions',
       ).replace(queryParameters: queryParams);
 
-      final response = await http.get(uri, headers: headers);
+      final response = await client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -175,7 +177,7 @@ class ApiService {
         if (phoneNumber != null) 'phone_number': phoneNumber,
       };
 
-      final response = await http.post(
+      final response = await client.post(
         Uri.parse('$baseUrl/wallet/topup'),
         headers: headers,
         body: json.encode(data),
@@ -198,7 +200,7 @@ class ApiService {
       final headers = await _getHeaders();
       final data = {'booking_id': bookingId};
 
-      final response = await http.post(
+      final response = await client.post(
         Uri.parse('$baseUrl/wallet/pay'),
         headers: headers,
         body: json.encode(data),
@@ -232,7 +234,7 @@ class ApiService {
         '$baseUrl/bookings',
       ).replace(queryParameters: queryParams);
 
-      final response = await http.get(uri, headers: headers);
+      final response = await client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -247,7 +249,7 @@ class ApiService {
   Future<Map<String, dynamic>> getBookingDetails(int bookingId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/bookings/$bookingId'),
         headers: headers,
       );
@@ -277,7 +279,7 @@ class ApiService {
         'passenger_count': passengerCount,
       };
 
-      final response = await http.post(
+      final response = await client.post(
         Uri.parse('$baseUrl/bookings'),
         headers: headers,
         body: json.encode(data),
@@ -315,7 +317,7 @@ class ApiService {
       ).replace(queryParameters: queryParams);
       print('Fetching available trips from: $uri');
 
-      final response = await http.get(uri, headers: headers);
+      final response = await client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -331,7 +333,7 @@ class ApiService {
   Future<Map<String, dynamic>> getTripDetails(int tripId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/trips/$tripId'),
         headers: headers,
       );
@@ -358,7 +360,7 @@ class ApiService {
         url += '?status=$status';
       }
 
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(url),
         headers: {
           'Content-Type': 'application/json',
@@ -382,7 +384,7 @@ class ApiService {
   // Get all routes
   static Future<List<Map<String, dynamic>>> getAllRoutes() async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.routesEndpoint}/',
         ),
@@ -405,7 +407,7 @@ class ApiService {
   // Get route by ID
   static Future<Map<String, dynamic>?> getRouteById(int routeId) async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.routesEndpoint}/$routeId',
         ),
@@ -428,7 +430,7 @@ class ApiService {
   // Search stops
   static Future<List<Map<String, dynamic>>> searchStops(String query) async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.stopsEndpoint}/search?q=$query',
         ),
@@ -451,7 +453,7 @@ class ApiService {
   // Get all stops
   static Future<List<Map<String, dynamic>>> getAllStops() async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.stopsEndpoint}/',
         ),
@@ -474,7 +476,7 @@ class ApiService {
   // Get route stops
   static Future<List<Map<String, dynamic>>> getRouteStops(int routeId) async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.routesEndpoint}/$routeId/stops',
         ),
@@ -502,7 +504,7 @@ class ApiService {
     String fareType = 'standard',
   }) async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.routesEndpoint}/fare?route_id=$routeId&start_stop_id=$startStopId&end_stop_id=$endStopId&fare_type=$fareType',
         ),
@@ -528,7 +530,7 @@ class ApiService {
   Future<Map<String, dynamic>> cancelBooking(int bookingId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.put(
+      final response = await client.put(
         Uri.parse('$baseUrl/bookings/$bookingId/cancel'),
         headers: headers,
       );
@@ -559,7 +561,7 @@ class ApiService {
         if (paymentDetails != null) 'payment_details': paymentDetails,
       };
 
-      final response = await http.post(
+      final response = await client.post(
         Uri.parse('$baseUrl/payments/process'),
         headers: headers,
         body: json.encode(data),
@@ -578,7 +580,7 @@ class ApiService {
   Future<Map<String, dynamic>> getPaymentStatus(int paymentId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/payments/$paymentId/status'),
         headers: headers,
       );
@@ -615,7 +617,7 @@ class ApiService {
         '$baseUrl/trips',
       ).replace(queryParameters: queryParams);
 
-      final response = await http.get(uri, headers: headers);
+      final response = await client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -645,7 +647,7 @@ class ApiService {
         '$baseUrl/notifications',
       ).replace(queryParameters: queryParams);
 
-      final response = await http.get(uri, headers: headers);
+      final response = await client.get(uri, headers: headers);
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -662,7 +664,7 @@ class ApiService {
   ) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.put(
+      final response = await client.put(
         Uri.parse('$baseUrl/notifications/$notificationId/read'),
         headers: headers,
       );
@@ -680,7 +682,7 @@ class ApiService {
   Future<Map<String, dynamic>> markAllNotificationsAsRead() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.put(
+      final response = await client.put(
         Uri.parse('$baseUrl/notifications/mark-all-read'),
         headers: headers,
       );
@@ -699,7 +701,7 @@ class ApiService {
   Future<Map<String, dynamic>> getDashboardStats() async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/dashboard/stats'),
         headers: headers,
       );
@@ -718,7 +720,7 @@ class ApiService {
   Future<Map<String, dynamic>> checkZenoPayStatus(String orderId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse('$baseUrl/payments/zenopay/status/$orderId'),
         headers: headers,
       );
@@ -738,7 +740,7 @@ class ApiService {
     required String endPoint,
   }) async {
     try {
-      final response = await http.get(
+      final response = await client.get(
         Uri.parse(
           '$baseUrl${AppConstants.apiBaseUrl}${AppConstants.routesEndpoint}/search?start_point=$startPoint&end_point=$endPoint',
         ),
@@ -768,7 +770,7 @@ class ApiService {
         throw Exception('No refresh token available');
       }
 
-      final response = await http.post(
+      final response = await client.post(
         Uri.parse('$baseUrl/auth/refresh'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'refresh_token': refreshToken}),
