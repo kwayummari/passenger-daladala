@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/ui/widgets/custom_button.dart';
 import '../../../../core/ui/widgets/loading_indicator.dart';
@@ -908,29 +913,36 @@ class _BookingDetailPageState extends State<BookingDetailPage> {
     );
   }
 
-  void _shareBookingDetails(Booking booking) {
+  void _shareBookingDetails(Booking booking) async {
     final details = '''
-🎫 Booking Details - Daladala Smart
+Booking Details - Daladala Smart
 
-📋 Booking ID: #${booking.id}
-🚌 Route: ${booking.routeInfo?.routeName ?? 'Unknown'}
-📍 From: ${booking.pickupStop?.stopName ?? 'Unknown'}
-📍 To: ${booking.dropoffStop?.stopName ?? 'Unknown'}
-👥 Passengers: ${booking.passengerCount}
-💰 Total Fare: ${booking.totalFare.toStringAsFixed(0)} TZS
-📅 Travel Date: ${booking.travelDate != null ? DateFormat('dd MMM yyyy, HH:mm').format(booking.travelDate!) : 'TBD'}
-🔖 Status: ${booking.status.replaceAll('_', ' ').toUpperCase()}
-💳 Payment: ${booking.paymentStatus.replaceAll('_', ' ').toUpperCase()}
+Booking ID: #${booking.id}
+Route: ${booking.routeInfo?.routeName ?? 'Unknown'}
+From: ${booking.pickupStop?.stopName ?? 'Unknown'}
+To: ${booking.dropoffStop?.stopName ?? 'Unknown'}
+Passengers: ${booking.passengerCount}
+Total Fare: ${booking.totalFare.toStringAsFixed(0)} TZS
+Travel Date: ${booking.travelDate != null ? DateFormat('dd MMM yyyy, HH:mm').format(booking.travelDate!) : 'TBD'}
+Status: ${booking.status.replaceAll('_', ' ').toUpperCase()}
+Payment: ${booking.paymentStatus.replaceAll('_', ' ').toUpperCase()}
 
-${booking.hasQrCode ? '📱 QR Code available for driver scanning' : ''}
+${booking.hasQrCode ? 'QR Code available for driver scanning' : ''}
 
 Download Daladala Smart app for easy bus booking!
     ''';
 
-    // You can implement share functionality here
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Sharing functionality will be available soon'),
+    // final bytes = await rootBundle.load('assets/logo.png');
+    // final tempDir = await getTemporaryDirectory();
+    // final file = File('${tempDir.path}/logo.png');
+    // await file.writeAsBytes(bytes.buffer.asUint8List());
+
+    await SharePlus.instance.share(
+      ShareParams(
+        // files: [XFile(file.path)],
+        title: 'Daladala Smart Booking Details',
+        subject: 'Daladala Smart Booking #${booking.id}',
+        text: details,
       ),
     );
   }
@@ -950,10 +962,7 @@ Download Daladala Smart app for easy bus booking!
                 ),
                 const SizedBox(height: 20),
                 ListTile(
-                  leading: Icon(
-                    Icons.phone,
-                    color: AppTheme.primaryColor,
-                  ),
+                  leading: Icon(Icons.phone, color: AppTheme.primaryColor),
                   title: const Text('Call Support'),
                   subtitle: const Text('+255 XXX XXX XXX'),
                   onTap: () {
@@ -962,10 +971,7 @@ Download Daladala Smart app for easy bus booking!
                   },
                 ),
                 ListTile(
-                  leading: Icon(
-                    Icons.email,
-                    color: AppTheme.primaryColor,
-                  ),
+                  leading: Icon(Icons.email, color: AppTheme.primaryColor),
                   title: const Text('Email Support'),
                   subtitle: const Text('support@daladalasmart.com'),
                   onTap: () {
